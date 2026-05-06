@@ -39,12 +39,9 @@ export default function AuraokeApp() {
   // --- STATE ---
   const [theme, setTheme] = useState<Theme>('geometric');
   
-  // Use sessionStorage as fallback for natural session-bound auth + check localStorage
+  // Login checks storage (defaults to true if credentials aren't found)
   const [showLogin, setShowLogin] = useState(() => {
     return localStorage.getItem('auraoke_logged_in') !== 'true' && sessionStorage.getItem('auraoke_logged_in') !== 'true';
-  });
-  const [user, setUser] = useState<string | null>(() => {
-    return localStorage.getItem('auraoke_user') || sessionStorage.getItem('auraoke_user') || null;
   });
   
   const [credits, setCredits] = useState(0);
@@ -58,7 +55,7 @@ export default function AuraokeApp() {
   const [scoreData, setScoreData] = useState<{ score: number, comment: string } | null>(null);
   const [showScore, setShowScore] = useState(false);
   
-  // Search state matching attached logic
+  // Search State
   const [searchQuery, setSearchQuery] = useState('');
   const [apiResults, setApiResults] = useState<Song[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -84,7 +81,7 @@ export default function AuraokeApp() {
   useEffect(() => {
     const today = new Date().toLocaleDateString();
     
-    // Final app close adjustments (Will wipe stats and auth tokens so the user logs out automatically)
+    // Auto logout & reset when app is closed or tab is refreshed
     const handleBeforeUnload = () => {
       localStorage.removeItem('auraoke_stats');
       localStorage.removeItem('auraoke_logged_in');
@@ -106,14 +103,13 @@ export default function AuraokeApp() {
       } catch (e) {}
     }
     
-    // Create new for that day ONLOAD init
     localStorage.setItem('auraoke_stats', JSON.stringify({ date: today, records: [] }));
     setSessionRecords([]);
 
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // Use the exact search logic from 2nd block
+  // --- FETCH SEARCH FROM BACKEND (Mobile & PC safe) ---
   useEffect(() => {
     if (!searchQuery.trim()) {
       setApiResults([]);
@@ -122,7 +118,10 @@ export default function AuraokeApp() {
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
+        // Use window.location.origin so mobile fetch uses network IP automatically
+        const host = typeof window !== 'undefined' ? window.location.origin : '';
+        const res = await fetch(`${host}/api/search?q=${encodeURIComponent(searchQuery)}`);
+        if (!res.ok) throw new Error("Search API error");
         const data = await res.json();
         if (data.results) {
           setApiResults(data.results);
@@ -132,7 +131,7 @@ export default function AuraokeApp() {
       } finally {
         setIsSearching(false);
       }
-    }, 500);
+    }, 700); // Debounce to prevent API spam while typing
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
@@ -152,7 +151,6 @@ export default function AuraokeApp() {
   };
 
   const handleVideoError = (event: any) => {
-    console.error("YouTube Player Error:", event.data);
     if (event.data === 101 || event.data === 150) {
       setVideoError("The owner of this video restricts embedded playback.");
     } else {
@@ -289,14 +287,10 @@ export default function AuraokeApp() {
       return;
     }
     setLoginError('');
-    setUser('Guest Singer');
     setShowLogin(false);
     
-    // Save state - both standard storage types so it persists across refreshes but clears firmly on close
     localStorage.setItem('auraoke_logged_in', 'true');
-    localStorage.setItem('auraoke_user', 'Guest Singer');
     sessionStorage.setItem('auraoke_logged_in', 'true');
-    sessionStorage.setItem('auraoke_user', 'Guest Singer');
   };
 
   const insertCoin = () => {
@@ -305,9 +299,6 @@ export default function AuraokeApp() {
   };
 
   const addToQueue = (song: Song) => {
-    if (credits <= 0 && queue.length === 0 && !currentSong) {
-        // Can't play without a coin, but queued items will wait for credit
-    }
     if (credits > 0) {
       setCredits(c => c - 1);
       setQueue(q => [...q, song]);
@@ -410,7 +401,7 @@ Return a valid JSON string exactly like this:
     } catch (err) {
       console.warn("Microphone access denied or not found. Using fallback mock AI scoring.");
       mediaRecorderRef.current = null;
-      setIsRecording(true); // Pretend we are recording to show the UI
+      setIsRecording(true); 
     }
   };
 
@@ -422,7 +413,6 @@ Return a valid JSON string exactly like this:
         setShowScore(false);
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         
-        // Convert Blob to Base64
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
@@ -433,16 +423,13 @@ Return a valid JSON string exactly like this:
       };
       
       mediaRecorderRef.current.stop();
-      // Stop all tracks
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
     } else if (isRecording) {
-      // Mock recording fallback
       setIsRecording(false);
       setIsJudging(true);
       setShowScore(false);
       executeScoring();
     } else {
-      // Not recording, just end
       setCurrentSong(null);
     }
   };
@@ -451,11 +438,10 @@ Return a valid JSON string exactly like this:
     stopRecordingAndScore();
   };
 
-  // --- RENDER BOILERPLATE ---
   return (
     <div className={`h-screen w-full transition-colors duration-700 ${themeClasses.bg} ${themeClasses.text} ${themeClasses.font} flex flex-col overflow-hidden`}>
       
-      {/* 1. LOGIN MODAL */}
+      {/* LOGIN MODAL */}
       <AnimatePresence>
         {showLogin && (
           <motion.div 
@@ -495,20 +481,20 @@ Return a valid JSON string exactly like this:
         )}
       </AnimatePresence>
 
-      {/* 2. MAIN DASHBOARD LAYOUT */}
+      {/* MAIN DASHBOARD */}
       {!showLogin && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
           
-          {/* LEFT/CENTER STAGE (VIDEO + CONTROLS) */}
+          {/* LEFT/CENTER STAGE */}
           <div className="flex-1 flex flex-col relative z-10 p-2 md:p-4 lg:p-6 min-h-[50vh] lg:min-h-0">
             
-            {/* Header / Arcade Machine Stats */}
+            {/* Header / Arcade Stats */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 shrink-0 relative">
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-xl ${themeClasses.accent} shadow-lg`}>
                   <Music className={`w-5 h-5 md:w-6 md:h-6 ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'}`} />
                 </div>
-                <h1 className={`text-xl md:text-2xl font-light tracking-[0.2em] uppercase ${themeClasses.title}`}>Auraoke v2.0 by Daniel B. Dionson</h1>
+                <h1 className={`text-xl md:text-2xl font-light tracking-[0.2em] uppercase ${themeClasses.title}`}>Auraoke v2.0</h1>
               </div>
 
               <div className={`flex flex-wrap items-center gap-3 md:gap-4 px-4 py-3 md:px-6 md:py-3 rounded-2xl md:rounded-full w-full md:w-auto ${themeClasses.panel}`}>
@@ -519,10 +505,10 @@ Return a valid JSON string exactly like this:
                   <motion.div animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}>
                     <Trophy className={`w-4 h-4 md:w-5 md:h-5 ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'}`} />
                   </motion.div>
-                  <span className={`hidden lg:block text-[10px] font-black uppercase tracking-widest ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'}`}>Session Stats</span>
+                  <span className={`hidden lg:block text-[10px] font-black uppercase tracking-widest ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'}`}>Stats</span>
                 </button>
                 <div className="flex flex-col items-end hidden md:flex">
-                  <span className={`text-[10px] uppercase font-bold tracking-widest ${themeClasses.textMuted}`}>Session Total</span>
+                  <span className={`text-[10px] uppercase font-bold tracking-widest ${themeClasses.textMuted}`}>Total</span>
                   <span className="font-bold text-sm">₱{totalPesos}</span>
                 </div>
                 <div className={`w-px h-8 ${themeClasses.border} hidden md:block`} />
@@ -552,7 +538,6 @@ Return a valid JSON string exactly like this:
             <div className={`flex-1 relative rounded-3xl overflow-hidden ${themeClasses.panel} flex flex-col justify-center items-center shadow-2xl min-h-0`}>
               {currentSong ? (
                 <div className="relative w-full h-full bg-black/90">
-                  {/* YouTube Player */}
                   <YouTube 
                     videoId={currentSong.videoId} 
                     opts={{
@@ -571,7 +556,6 @@ Return a valid JSON string exactly like this:
                     onEnd={onPlayerEnd}
                     className="w-full h-full absolute inset-0"
                   />
-                  {/* Error Overlay */}
                   {videoError && (
                     <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-8 text-center z-40 backdrop-blur-md">
                       <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-4">
@@ -597,7 +581,6 @@ Return a valid JSON string exactly like this:
                       </div>
                     </div>
                   )}
-                  {/* Overlay Controls */}
                   <div className="absolute top-2 md:top-6 flex w-full px-2 md:px-6 justify-between items-start pointer-events-none">
                     <div className="bg-black/60 backdrop-blur-md px-3 py-2 md:px-4 md:py-2 border border-white/10 rounded-xl pointer-events-auto shadow-2xl max-w-[60%] sm:max-w-sm flex items-center gap-2 md:gap-4">
                       <button onClick={togglePlayPause} className="p-1.5 md:p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors text-white shrink-0">
@@ -623,21 +606,21 @@ Return a valid JSON string exactly like this:
                   {isJudging ? (
                      <div className="flex flex-col items-center py-10">
                         <Loader2 className={`w-16 h-16 animate-spin mb-4 ${themeClasses.text}`} />
-                        <h3 className="text-2xl font-black uppercase tracking-widest text-[#D4AF37]">Neural Network Analyzing Pitch...</h3>
+                        <h3 className="text-2xl font-black uppercase tracking-widest text-[#D4AF37]">Analyzing Pitch...</h3>
                         <p className={`${themeClasses.textMuted} mt-2`}>The Gemini AI is evaluating your performance.</p>
                      </div>
                   ) : (
                     <>
                       <DancingRobot themeClasses={themeClasses} />
-                      <h2 className="text-4xl font-black tracking-tight mt-6">Stage is Empty</h2>
-                      <p className={`text-lg ${themeClasses.textMuted} max-w-md mx-auto leading-tight`}>Queue a song from the right panel and press play when ready.</p>
+                      <h2 className="text-3xl md:text-4xl font-black tracking-tight mt-6">Stage is Empty</h2>
+                      <p className={`text-sm md:text-lg ${themeClasses.textMuted} max-w-md mx-auto leading-tight`}>Queue a song from the right panel and press play when ready.</p>
                       {queue.length > 0 && credits > 0 && (
-                        <button onClick={playNext} className={`mt-8 px-8 py-4 rounded-full flex items-center justify-center gap-2 mx-auto ${themeClasses.accent} ${themeClasses.accentText} ${themeClasses.accentHover} shadow-[0_0_30px_currentColor] opacity-80 transition-transform hover:scale-105 font-black uppercase tracking-widest`}>
-                          <Play className="w-5 h-5" fill="currentColor" /> Play Next: {queue[0].title}
+                        <button onClick={playNext} className={`mt-8 px-6 py-4 md:px-8 md:py-4 rounded-full flex items-center justify-center gap-2 mx-auto ${themeClasses.accent} ${themeClasses.accentText} ${themeClasses.accentHover} shadow-[0_0_30px_currentColor] opacity-80 transition-transform hover:scale-105 font-black uppercase tracking-widest text-sm`}>
+                          <Play className="w-5 h-5" fill="currentColor" /> Play Next
                         </button>
                       )}
                       {queue.length > 0 && credits <= 0 && (
-                        <p className="mt-8 text-rose-500 font-bold uppercase tracking-widest animate-pulse">Insert Coin to Play Queue!</p>
+                        <p className="mt-8 text-rose-500 font-bold uppercase tracking-widest animate-pulse">Insert Coin to Play!</p>
                       )}
                     </>
                   )}
@@ -645,12 +628,10 @@ Return a valid JSON string exactly like this:
               )}
             </div>
 
-            {/* Floating Settings Button */}
             <button onClick={() => setShowSettings(true)} className={`absolute bottom-6 left-6 p-3 rounded-full ${themeClasses.panel} hover:scale-110 transition-transform z-20`}>
               <Settings className="w-6 h-6" />
             </button>
 
-            {/* Floating Search/Queue Button */}
             <AnimatePresence>
               {!isSearchOpen && (
                 <motion.button 
@@ -669,11 +650,10 @@ Return a valid JSON string exactly like this:
             </AnimatePresence>
           </div>
 
-          {/* RIGHT PANELS (SEARCH + QUEUE) */}
+          {/* SEARCH & QUEUE DRAWER */}
           <AnimatePresence>
             {isSearchOpen && (
               <React.Fragment key="search-drawer-fragment">
-                {/* Mobile Backdrop */}
                 <motion.div 
                   key="backdrop"
                   initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -681,7 +661,6 @@ Return a valid JSON string exactly like this:
                   className="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm"
                 />
                 
-                {/* Search Drawer */}
                 <motion.div 
                   key="drawer"
                   initial={{ x: '100%' }}
@@ -690,8 +669,6 @@ Return a valid JSON string exactly like this:
                   transition={{ type: "spring", damping: 25, stiffness: 200 }}
                   className={`fixed inset-y-0 right-0 w-[90%] max-w-sm lg:max-w-md flex flex-col z-50 ${themeClasses.panel} bg-opacity-95 lg:bg-opacity-100 backdrop-blur-3xl lg:backdrop-blur-none border-l shadow-[-20px_0_50px_rgba(0,0,0,0.5)] shrink-0 rounded-none`}
                 >
-                  
-                  {/* Drawer Header */}
                   <div className={`p-4 border-b ${themeClasses.border} shrink-0 flex items-center justify-between`}>
                     <h2 className={`font-black tracking-widest uppercase text-sm px-2 ${themeClasses.text}`}>Song Library</h2>
                     <button onClick={() => setIsSearchOpen(false)} className={`p-2 rounded-full hover:bg-white/10 transition-colors ${themeClasses.text}`}>
@@ -699,7 +676,6 @@ Return a valid JSON string exactly like this:
                     </button>
                   </div>
 
-                  {/* Search Area */}
                   <div className={`p-4 border-b ${themeClasses.border} shrink-0`}>
                     <div className="relative">
                       <Search className={`absolute left-4 top-3.5 w-5 h-5 ${themeClasses.textMuted}`} />
@@ -712,7 +688,6 @@ Return a valid JSON string exactly like this:
                     </div>
                   </div>
 
-                  {/* Song List */}
                   <div className="flex-1 overflow-y-auto p-4 space-y-2 relative pb-28 custom-scrollbar">
                     <h3 className={`text-[10px] font-bold uppercase tracking-widest mb-4 px-2 ${themeClasses.textMuted}`}>
                       {searchQuery ? (isSearching ? 'Searching YouTube...' : 'Search Results') : 'Suggested Hits'}
@@ -759,19 +734,16 @@ Return a valid JSON string exactly like this:
                             }
                           }}
                         />
-                        <p className={`text-[10px] mt-2 ${themeClasses.textMuted}`}>Press Enter to queue ID</p>
                       </div>
                     )}
                   </div>
                   
-                  {/* Hover-to-Expand Queue Panel (Bottom Right) */}
                   <div className={`w-full border-t border-[currentColor] opacity-20 absolute bottom-0`}/>
                   <QueuePanel 
                     queue={queue} 
                     themeClasses={themeClasses} 
                     theme={theme}
                     onRemove={(index: number) => setQueue(q => q.filter((_, i) => i !== index))}
-                    onPlay={() => {}} // Play naturally flows from "Play Next" on stage
                   />
                 </motion.div>
               </React.Fragment>
@@ -780,7 +752,7 @@ Return a valid JSON string exactly like this:
         </motion.div>
       )}
 
-      {/* 3. SETTINGS MODAL */}
+      {/* SETTINGS MODAL */}
       <AnimatePresence>
         {showSettings && (
           <motion.div 
@@ -828,7 +800,6 @@ Return a valid JSON string exactly like this:
                         className={`absolute top-1 left-0 w-4 h-4 rounded-full ${aiCoaching ? (themeClasses.bg === 'bg-white' ? 'bg-white' : 'bg-black') : 'bg-white shadow'}`}
                       />
                     </div>
-                    {/* Hidden input to toggle state */}
                     <input type="checkbox" className="hidden" checked={aiCoaching} onChange={(e) => setAiCoaching(e.target.checked)} />
                   </label>
                 </div>
@@ -838,7 +809,7 @@ Return a valid JSON string exactly like this:
         )}
       </AnimatePresence>
 
-      {/* 4. STATS HISTORY MODAL */}
+      {/* STATS HISTORY MODAL */}
       <AnimatePresence>
         {showStatsModal && (
           <motion.div 
@@ -857,7 +828,6 @@ Return a valid JSON string exactly like this:
               </div>
               
               <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-8">
-                 {/* Left Column: Summary & History */}
                  <div className="flex-1 flex flex-col min-h-0 lg:border-r border-white/20 lg:pr-8">
                     <div className="flex gap-4 mb-6">
                        <div className="p-4 rounded-xl bg-black/40 border border-[#D4AF37]/20 flex-1 flex flex-col justify-center items-center text-center">
@@ -892,7 +862,6 @@ Return a valid JSON string exactly like this:
                     </div>
                  </div>
                  
-                 {/* Right Column: Top 10 High Scores */}
                  <div className="w-full lg:w-1/3 flex flex-col min-h-0 pt-6 lg:pt-0 border-t lg:border-t-0 border-white/20">
                     <h3 className="text-xs font-bold uppercase tracking-widest mb-4 text-yellow-400 flex items-center gap-2">
                       <Trophy className="w-4 h-4"/> Top 10 Hall of Fame
@@ -921,34 +890,25 @@ Return a valid JSON string exactly like this:
                     </div>
                  </div>
               </div>
-              
-              {/* Footer Copyright */}
-              <div className={`mt-6 pt-4 border-t border-white/10 text-center text-[10px] uppercase tracking-[0.2em] ${themeClasses.textMuted} font-bold`}>
-                Auraoke v2.0 by Daniel B. Dionson Copyright 2026
-              </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 5. SCORE REVEAL MODAL */}
+      {/* SCORE REVEAL MODAL */}
       <AnimatePresence>
         {showScore && scoreData && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className={`fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/90 backdrop-blur-3xl overflow-hidden`}
           >
-            {/* Celebration Balloons */}
             <CelebrationBalloons score={scoreData.score} />
-
             <motion.div 
               initial={{ scale: 0.5, y: 100, rotate: -5 }} animate={{ scale: 1, y: 0, rotate: 0 }} exit={{ scale: 0.8, opacity: 0 }}
               transition={{ type: "spring", damping: 15 }}
               className={`w-full max-w-lg p-10 rounded-[3rem] ${themeClasses.panel} text-center relative overflow-hidden z-10`}
             >
-              {/* Particle effect container (CSS generated purely for bg) */}
               <div className="absolute inset-0 pointer-events-none opacity-20 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[currentColor] to-transparent" />
-              
               <h2 className={`text-sm font-black uppercase tracking-[0.3em] mb-4 ${themeClasses.textMuted}`}>Performance Score</h2>
               
               <div className="flex justify-center items-end gap-2 mb-8 relative z-10 w-48 h-48 mx-auto flex-col">
@@ -1013,8 +973,7 @@ function CelebrationBalloons({ score }: { score: number }) {
   );
 }
 
-// --- QUEUE PANEL COMPONENT ---
-function QueuePanel({ queue, themeClasses, theme, onRemove, onPlay }: any) {
+function QueuePanel({ queue, themeClasses, theme, onRemove }: any) {
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -1026,7 +985,6 @@ function QueuePanel({ queue, themeClasses, theme, onRemove, onPlay }: any) {
       onMouseLeave={() => setIsHovered(false)}
       style={{ overflow: 'hidden' }}
     >
-      {/* Header (Always visible) */}
       <div 
         className={`h-20 shrink-0 flex items-center justify-between px-6 cursor-pointer ${theme === 'glass' ? 'bg-white/80' : 'bg-black/40'} backdrop-blur-xl`}
         onClick={() => setIsHovered(!isHovered)}
@@ -1047,7 +1005,6 @@ function QueuePanel({ queue, themeClasses, theme, onRemove, onPlay }: any) {
         </motion.div>
       </div>
 
-      {/* Expanded Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-black/10 custom-scrollbar">
         {queue.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center opacity-50 text-center px-4">
@@ -1082,20 +1039,16 @@ function DancingRobot({ themeClasses }: any) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
     >
-      {/* Glow */}
       <motion.div 
         animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }} 
         transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
         className={`absolute w-40 h-40 rounded-full blur-3xl ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'bg-[#D4AF37]/30' : themeClasses.bg === 'bg-black' ? 'bg-amber-500/30' : 'bg-slate-500/30'}`} 
       />
-      
-      {/* Robot Head */}
       <motion.div
         animate={{ y: [0, -10, 0], rotate: [-2, 2, -2] }}
         transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
         className={`relative z-10 w-24 h-24 rounded-3xl ${themeClasses.panel} flex items-center justify-center border-b-4 border-r-4 ${themeClasses.border}`}
       >
-         {/* Eyes */}
          <div className="flex gap-4">
            <motion.div 
              animate={{ scaleY: [1, 0.1, 1] }} 
@@ -1108,7 +1061,6 @@ function DancingRobot({ themeClasses }: any) {
              className={`w-4 h-2 ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'bg-[#D4AF37]' : themeClasses.bg === 'bg-black' ? 'bg-amber-400' : 'bg-slate-700'} rounded-full glow`} 
            />
          </div>
-         {/* Antenna */}
          <motion.div 
            animate={{ rotate: [-10, 10, -10] }}
            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
@@ -1116,12 +1068,9 @@ function DancingRobot({ themeClasses }: any) {
          >
             <div className={`absolute -top-2 -left-1 w-3 h-3 rounded-full ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'bg-[#D4AF37]' : themeClasses.bg === 'bg-black' ? 'bg-amber-400' : 'bg-slate-700'} animate-ping`} />
          </motion.div>
-         {/* Ears */}
          <div className={`absolute -left-3 top-8 w-4 h-8 rounded-l-full ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'bg-[#D4AF37]/40' : themeClasses.bg === 'bg-black' ? 'bg-amber-500/40' : 'bg-slate-500/40'}`} />
          <div className={`absolute -right-3 top-8 w-4 h-8 rounded-r-full ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'bg-[#D4AF37]/40' : themeClasses.bg === 'bg-black' ? 'bg-amber-500/40' : 'bg-slate-500/40'}`} />
       </motion.div>
-
-      {/* Mic Arm */}
       <motion.div
         animate={{ y: [0, -10, 0], x: [0, 5, 0], rotate: [0, 10, 0] }}
         transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
@@ -1131,8 +1080,6 @@ function DancingRobot({ themeClasses }: any) {
           <Mic className={`w-8 h-8 ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'text-[#D4AF37]' : themeClasses.bg === 'bg-black' ? 'text-amber-400' : 'text-slate-800'}`} />
         </div>
       </motion.div>
-
-      {/* Floating Notes */}
       <motion.div
          animate={{ y: [0, -40], x: [0, -20], opacity: [0, 1, 0] }}
          transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}

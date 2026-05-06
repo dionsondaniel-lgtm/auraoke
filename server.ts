@@ -1,5 +1,6 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
+// @ts-ignore - ignores TS warning if @types/yt-search is not installed
 import yts from "yt-search";
 import path from "path";
 
@@ -10,7 +11,9 @@ async function startServer() {
   // API route for YouTube search
   app.get("/api/search", async (req, res) => {
     try {
-      const query = req.query.q as string;
+      // 1. Force TypeScript to recognize the query as a string
+      const query = typeof req.query.q === 'string' ? req.query.q : '';
+      
       if (!query) {
         return res.status(400).json({ error: "Query is required" });
       }
@@ -19,13 +22,13 @@ async function startServer() {
       const searchQuery = isKaraokeQuery ? query : `${query} karaoke`;
       const r = await yts(searchQuery);
       
-      // Attempt to only return valid videos. Oembed checking too aggressively blocks valid videos due to rate limits.
       const candidates = r.videos.slice(0, 15);
       const embeddableVideos = [];
       
-      for (const v of candidates) {
+      // 2. Explicitly cast to any[] to fix the "v implicitly has an 'any' type" error
+      for (const v of candidates as any[]) {
         try {
-          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${v.videoId}`);
+          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${v.videoId}&format=json`);
           if (oembedRes.ok) {
             embeddableVideos.push({
               id: v.videoId,
@@ -41,8 +44,8 @@ async function startServer() {
         }
       }
 
-      // Fallback: If strict embedded check finds 0 results, just return the top 8 candidates.
-      const results = embeddableVideos.length > 0 ? embeddableVideos : candidates.slice(0, 8).map(v => ({
+      // 3. Explicitly type v as any in the map function
+      const results = embeddableVideos.length > 0 ? embeddableVideos : candidates.slice(0, 8).map((v: any) => ({
         id: v.videoId,
         title: v.title,
         artist: v.author.name,
