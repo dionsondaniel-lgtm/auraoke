@@ -38,8 +38,14 @@ interface SessionRecord {
 export default function AuraokeApp() {
   // --- STATE ---
   const [theme, setTheme] = useState<Theme>('geometric');
-  const [showLogin, setShowLogin] = useState(() => localStorage.getItem('auraoke_logged_in') !== 'true');
-  const [user, setUser] = useState<string | null>(() => localStorage.getItem('auraoke_user'));
+  
+  // Use sessionStorage as fallback for natural session-bound auth + check localStorage
+  const [showLogin, setShowLogin] = useState(() => {
+    return localStorage.getItem('auraoke_logged_in') !== 'true' && sessionStorage.getItem('auraoke_logged_in') !== 'true';
+  });
+  const [user, setUser] = useState<string | null>(() => {
+    return localStorage.getItem('auraoke_user') || sessionStorage.getItem('auraoke_user') || null;
+  });
   
   const [credits, setCredits] = useState(0);
   const [totalPesos, setTotalPesos] = useState(0);
@@ -52,9 +58,11 @@ export default function AuraokeApp() {
   const [scoreData, setScoreData] = useState<{ score: number, comment: string } | null>(null);
   const [showScore, setShowScore] = useState(false);
   
+  // Search state matching attached logic
   const [searchQuery, setSearchQuery] = useState('');
   const [apiResults, setApiResults] = useState<Song[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [aiCoaching, setAiCoaching] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
@@ -76,11 +84,13 @@ export default function AuraokeApp() {
   useEffect(() => {
     const today = new Date().toLocaleDateString();
     
-    // Cleanup on window unload (Simulate deleting the JSON file on app close)
+    // Final app close adjustments (Will wipe stats and auth tokens so the user logs out automatically)
     const handleBeforeUnload = () => {
       localStorage.removeItem('auraoke_stats');
       localStorage.removeItem('auraoke_logged_in');
       localStorage.removeItem('auraoke_user');
+      sessionStorage.removeItem('auraoke_logged_in');
+      sessionStorage.removeItem('auraoke_user');
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
 
@@ -103,6 +113,7 @@ export default function AuraokeApp() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
+  // Use the exact search logic from 2nd block
   useEffect(() => {
     if (!searchQuery.trim()) {
       setApiResults([]);
@@ -192,7 +203,7 @@ export default function AuraokeApp() {
     }
   }[theme];
 
-  // --- AI LOGIC (FROM REFERENCE) ---
+  // --- AI LOGIC ---
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [activeModel, setActiveModel] = useState<string>('gemini-2.5-flash');
 
@@ -280,8 +291,12 @@ export default function AuraokeApp() {
     setLoginError('');
     setUser('Guest Singer');
     setShowLogin(false);
+    
+    // Save state - both standard storage types so it persists across refreshes but clears firmly on close
     localStorage.setItem('auraoke_logged_in', 'true');
     localStorage.setItem('auraoke_user', 'Guest Singer');
+    sessionStorage.setItem('auraoke_logged_in', 'true');
+    sessionStorage.setItem('auraoke_user', 'Guest Singer');
   };
 
   const insertCoin = () => {
@@ -291,9 +306,7 @@ export default function AuraokeApp() {
 
   const addToQueue = (song: Song) => {
     if (credits <= 0 && queue.length === 0 && !currentSong) {
-        // Just add to queue if they have no credits but they want to queue, 
-        // wait, they need credits to play. Let's allow queueing but require credits to play.
-        // Actually arcade rule: Can't add to queue without credit.
+        // Can't play without a coin, but queued items will wait for credit
     }
     if (credits > 0) {
       setCredits(c => c - 1);
@@ -688,78 +701,78 @@ Return a valid JSON string exactly like this:
 
                   {/* Search Area */}
                   <div className={`p-4 border-b ${themeClasses.border} shrink-0`}>
-              <div className="relative">
-                <Search className={`absolute left-4 top-3.5 w-5 h-5 ${themeClasses.textMuted}`} />
-                <input 
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search artist or song..." 
-                  className={`w-full pl-12 pr-4 py-3 rounded-xl focus:outline-none transition-all ${themeClasses.input} focus:ring-1 focus:ring-[currentColor] text-sm font-medium`} 
-                />
-              </div>
-            </div>
-
-            {/* Song List */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 relative pb-28 custom-scrollbar">
-              <h3 className={`text-[10px] font-bold uppercase tracking-widest mb-4 px-2 ${themeClasses.textMuted}`}>
-                {searchQuery ? (isSearching ? 'Searching YouTube...' : 'Search Results') : 'Suggested Hits'}
-              </h3>
-              
-              {isSearching ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className={`w-8 h-8 animate-spin ${themeClasses.textMuted}`} />
-                </div>
-              ) : (
-                (searchQuery ? apiResults : SUGGESTED_SONGS).map((song) => (
-                  <motion.div 
-                    key={song.id}
-                    whileHover={{ scale: 1.02 }}
-                    className={`group p-3 rounded-2xl flex items-center justify-between border border-transparent hover:${themeClasses.border} transition-colors cursor-pointer ${themeClasses.bg} bg-opacity-50 shrink-0`}
-                  >
-                    <div className="flex-1 truncate pr-4">
-                      <h4 className="font-bold truncate text-sm">{song.title}</h4>
-                      <p className={`text-xs truncate ${themeClasses.textMuted}`}>{song.artist}</p>
+                    <div className="relative">
+                      <Search className={`absolute left-4 top-3.5 w-5 h-5 ${themeClasses.textMuted}`} />
+                      <input 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search artist or song..." 
+                        className={`w-full pl-12 pr-4 py-3 rounded-xl focus:outline-none transition-all ${themeClasses.input} focus:ring-1 focus:ring-[currentColor] text-sm font-medium`} 
+                      />
                     </div>
-                    <button 
-                      onClick={() => addToQueue(song)}
-                      className={`p-2 rounded-full ${theme === 'glass' ? 'bg-slate-200' : 'bg-white/10'} hover:bg-[currentColor] transition-colors`}
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </motion.div>
-                ))
-              )}
-              
-              {!isSearching && searchQuery && apiResults.length === 0 && (
-                <div className="p-4 text-center mt-4">
-                  <p className={`text-xs ${themeClasses.textMuted} mb-4`}>Song not found in YouTube.</p>
-                  <input 
-                    placeholder="Paste YouTube Video ID"
-                    className={`w-full px-3 py-2 text-xs rounded border focus:outline-none ${themeClasses.input}`}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        const val = e.currentTarget.value;
-                        if (val) {
-                          addToQueue({ id: 'custom-' + Date.now(), title: 'Custom Track', artist: 'Unknown', videoId: val });
-                          e.currentTarget.value = '';
-                        }
-                      }
-                    }}
+                  </div>
+
+                  {/* Song List */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-2 relative pb-28 custom-scrollbar">
+                    <h3 className={`text-[10px] font-bold uppercase tracking-widest mb-4 px-2 ${themeClasses.textMuted}`}>
+                      {searchQuery ? (isSearching ? 'Searching YouTube...' : 'Search Results') : 'Suggested Hits'}
+                    </h3>
+                    
+                    {isSearching ? (
+                      <div className="flex justify-center py-8">
+                        <Loader2 className={`w-8 h-8 animate-spin ${themeClasses.textMuted}`} />
+                      </div>
+                    ) : (
+                      (searchQuery ? apiResults : SUGGESTED_SONGS).map((song) => (
+                        <motion.div 
+                          key={song.id}
+                          whileHover={{ scale: 1.02 }}
+                          className={`group p-3 rounded-2xl flex items-center justify-between border border-transparent hover:${themeClasses.border} transition-colors cursor-pointer ${themeClasses.bg} bg-opacity-50 shrink-0`}
+                        >
+                          <div className="flex-1 truncate pr-4">
+                            <h4 className="font-bold truncate text-sm">{song.title}</h4>
+                            <p className={`text-xs truncate ${themeClasses.textMuted}`}>{song.artist}</p>
+                          </div>
+                          <button 
+                            onClick={() => addToQueue(song)}
+                            className={`p-2 rounded-full ${theme === 'glass' ? 'bg-slate-200' : 'bg-white/10'} hover:bg-[currentColor] transition-colors`}
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
+                        </motion.div>
+                      ))
+                    )}
+                    
+                    {!isSearching && searchQuery && apiResults.length === 0 && (
+                      <div className="p-4 text-center mt-4">
+                        <p className={`text-xs ${themeClasses.textMuted} mb-4`}>Song not found in YouTube.</p>
+                        <input 
+                          placeholder="Paste YouTube Video ID"
+                          className={`w-full px-3 py-2 text-xs rounded border focus:outline-none ${themeClasses.input}`}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const val = e.currentTarget.value;
+                              if (val) {
+                                addToQueue({ id: 'custom-' + Date.now(), title: 'Custom Track', artist: 'Unknown', videoId: val });
+                                e.currentTarget.value = '';
+                              }
+                            }
+                          }}
+                        />
+                        <p className={`text-[10px] mt-2 ${themeClasses.textMuted}`}>Press Enter to queue ID</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Hover-to-Expand Queue Panel (Bottom Right) */}
+                  <div className={`w-full border-t border-[currentColor] opacity-20 absolute bottom-0`}/>
+                  <QueuePanel 
+                    queue={queue} 
+                    themeClasses={themeClasses} 
+                    theme={theme}
+                    onRemove={(index: number) => setQueue(q => q.filter((_, i) => i !== index))}
+                    onPlay={() => {}} // Play naturally flows from "Play Next" on stage
                   />
-                  <p className={`text-[10px] mt-2 ${themeClasses.textMuted}`}>Press Enter to queue ID</p>
-                </div>
-              )}
-            </div>
-            
-            {/* Hover-to-Expand Queue Panel (Bottom Right) */}
-            <div className={`w-full border-t border-[currentColor] opacity-20 absolute bottom-0`}/>
-            <QueuePanel 
-              queue={queue} 
-              themeClasses={themeClasses} 
-              theme={theme}
-              onRemove={(index: number) => setQueue(q => q.filter((_, i) => i !== index))}
-              onPlay={() => {}} // Play naturally flows from "Play Next" on stage
-            />
                 </motion.div>
               </React.Fragment>
             )}
