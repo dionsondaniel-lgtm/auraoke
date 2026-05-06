@@ -38,8 +38,8 @@ interface SessionRecord {
 export default function AuraokeApp() {
   // --- STATE ---
   const [theme, setTheme] = useState<Theme>('geometric');
-  const [showLogin, setShowLogin] = useState(true);
-  const [user, setUser] = useState<string | null>(null);
+  const [showLogin, setShowLogin] = useState(() => localStorage.getItem('auraoke_logged_in') !== 'true');
+  const [user, setUser] = useState<string | null>(() => localStorage.getItem('auraoke_user'));
   
   const [credits, setCredits] = useState(0);
   const [totalPesos, setTotalPesos] = useState(0);
@@ -55,6 +55,7 @@ export default function AuraokeApp() {
   const [searchQuery, setSearchQuery] = useState('');
   const [apiResults, setApiResults] = useState<Song[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [aiCoaching, setAiCoaching] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -277,6 +278,8 @@ export default function AuraokeApp() {
     setLoginError('');
     setUser('Guest Singer');
     setShowLogin(false);
+    localStorage.setItem('auraoke_logged_in', 'true');
+    localStorage.setItem('auraoke_user', 'Guest Singer');
   };
 
   const insertCoin = () => {
@@ -370,7 +373,13 @@ Return a valid JSON string exactly like this:
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: false,
+        } 
+      });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
@@ -473,24 +482,24 @@ Return a valid JSON string exactly like this:
 
       {/* 2. MAIN DASHBOARD LAYOUT */}
       {!showLogin && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col lg:flex-row min-h-0 relative">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
           
           {/* LEFT/CENTER STAGE (VIDEO + CONTROLS) */}
-          <div className="flex-1 flex flex-col relative z-10 p-4 lg:p-6 min-h-0">
+          <div className="flex-1 flex flex-col relative z-10 p-2 md:p-4 lg:p-6 min-h-[50vh] lg:min-h-0">
             
             {/* Header / Arcade Machine Stats */}
-            <div className="flex justify-between items-center mb-4 shrink-0 relative">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 shrink-0 relative">
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-xl ${themeClasses.accent} shadow-lg`}>
-                  <Music className={`w-6 h-6 ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'}`} />
+                  <Music className={`w-5 h-5 md:w-6 md:h-6 ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'}`} />
                 </div>
-                <h1 className={themeClasses.title}>Auraoke v2.0</h1>
+                <h1 className={`text-xl md:text-2xl font-light tracking-[0.2em] uppercase ${themeClasses.title}`}>Auraoke v2.0 by Daniel B. Dionson</h1>
               </div>
 
-              <div className={`flex items-center gap-4 px-6 py-3 rounded-full ${themeClasses.panel}`}>
+              <div className={`flex flex-wrap items-center gap-3 md:gap-4 px-4 py-3 md:px-6 md:py-3 rounded-2xl md:rounded-full w-full md:w-auto ${themeClasses.panel}`}>
                 <button 
                   onClick={() => setShowStatsModal(true)}
-                  className={`p-2 md:px-4 md:py-2 rounded-full flex gap-2 items-center ${themeClasses.accent} shadow-[0_0_15px_rgba(212,175,55,0.3)] hover:scale-110 transition-all z-20 md:mr-2`}
+                  className={`p-2 md:px-4 md:py-2 rounded-full flex gap-2 items-center ${themeClasses.accent} shadow-[0_0_15px_rgba(212,175,55,0.3)] hover:scale-110 transition-all z-20`}
                 >
                   <motion.div animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}>
                     <Trophy className={`w-4 h-4 md:w-5 md:h-5 ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'}`} />
@@ -502,21 +511,21 @@ Return a valid JSON string exactly like this:
                   <span className="font-bold text-sm">₱{totalPesos}</span>
                 </div>
                 <div className={`w-px h-8 ${themeClasses.border} hidden md:block`} />
-                <div className="flex items-center gap-2">
-                  <Coins className="w-5 h-5 text-yellow-400" />
-                  <span className="text-xl font-black tracking-widest">{credits} <span className={`text-xs ${themeClasses.textMuted}`}>SONG CREDITS</span></span>
+                <div className="flex items-center gap-2 flex-1 md:flex-none">
+                  <Coins className="w-4 h-4 md:w-5 md:h-5 text-yellow-400" />
+                  <span className="text-lg md:text-xl font-black tracking-widest">{credits} <span className={`text-[10px] md:text-xs ${themeClasses.textMuted}`}>CREDITS</span></span>
                 </div>
                 <motion.button 
                   whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                   onClick={insertCoin}
-                  className={`ml-2 md:ml-4 px-3 py-2 md:px-4 md:py-2 rounded-full text-xs shadow-xl ${themeClasses.accent} ${themeClasses.accentText} ${themeClasses.accentHover}`}
+                  className={`px-3 py-2 md:px-4 md:py-2 rounded-full text-[10px] md:text-xs shadow-xl ${themeClasses.accent} ${themeClasses.accentText} ${themeClasses.accentHover} whitespace-nowrap`}
                 >
                   Insert Coin (5₱)
                 </motion.button>
                 {currentSong && (
                   <button 
                     onClick={stopRecordingAndScore}
-                    className="ml-2 px-3 py-2 md:px-4 md:py-2 bg-red-600/90 hover:bg-red-500 text-white rounded-full font-black text-[10px] md:text-xs uppercase tracking-widest shadow-lg border border-red-400 flex items-center gap-2 transition-transform hover:scale-105"
+                    className="w-full sm:w-auto mt-1 sm:mt-0 px-3 py-2 md:px-4 md:py-2 bg-red-600/90 hover:bg-red-500 text-white rounded-full font-black text-[10px] md:text-xs uppercase tracking-widest shadow-lg border border-red-400 flex justify-center items-center gap-2 transition-transform hover:scale-105"
                   >
                     <Square className="w-4 h-4" fill="currentColor" /> Stop & Score
                   </button>
@@ -574,22 +583,22 @@ Return a valid JSON string exactly like this:
                     </div>
                   )}
                   {/* Overlay Controls */}
-                  <div className="absolute top-6 flex w-full px-6 justify-between items-start pointer-events-none">
-                    <div className="bg-black/60 backdrop-blur-md px-4 py-2 border border-white/10 rounded-xl pointer-events-auto shadow-2xl max-w-sm flex items-center gap-4">
-                      <button onClick={togglePlayPause} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors text-white">
-                        {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                  <div className="absolute top-2 md:top-6 flex w-full px-2 md:px-6 justify-between items-start pointer-events-none">
+                    <div className="bg-black/60 backdrop-blur-md px-3 py-2 md:px-4 md:py-2 border border-white/10 rounded-xl pointer-events-auto shadow-2xl max-w-[60%] sm:max-w-sm flex items-center gap-2 md:gap-4">
+                      <button onClick={togglePlayPause} className="p-1.5 md:p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors text-white shrink-0">
+                        {isPlaying ? <Pause className="w-4 h-4 md:w-5 md:h-5" /> : <Play className="w-4 h-4 md:w-5 md:h-5" />}
                       </button>
-                      <div>
-                        <p className="text-xs text-white/50 uppercase tracking-widest font-bold mb-1">Now Playing</p>
-                        <h3 className="text-white font-black truncate text-sm">{currentSong.title}</h3>
-                        <p className="text-white/80 text-xs truncate">{currentSong.artist}</p>
+                      <div className="min-w-0">
+                        <p className="text-[8px] md:text-xs text-white/50 uppercase tracking-widest font-bold mb-0.5 md:mb-1 truncate">Now Playing</p>
+                        <h3 className="text-white font-black truncate text-xs md:text-sm">{currentSong.title}</h3>
+                        <p className="text-white/80 text-[10px] md:text-xs truncate">{currentSong.artist}</p>
                       </div>
                     </div>
                     {isRecording && (
-                      <div className="flex items-center gap-2 bg-red-500/20 text-red-400 px-4 py-2 rounded-full border border-red-500/30 backdrop-blur-md pointer-events-auto animate-pulse">
-                        <div className="w-2 h-2 rounded-full bg-red-500" />
-                        <span className="text-xs font-bold uppercase tracking-widest hidden md:inline">Mic Active - AI Listening</span>
-                        <span className="text-xs font-bold uppercase tracking-widest md:hidden">Mic Active</span>
+                      <div className="flex items-center gap-1.5 md:gap-2 bg-red-500/20 text-red-400 px-2 py-1 md:px-4 md:py-2 rounded-full border border-red-500/30 backdrop-blur-md pointer-events-auto animate-pulse shrink-0">
+                        <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-red-500 shrink-0" />
+                        <span className="text-[8px] md:text-xs font-bold uppercase tracking-widest hidden md:inline">Mic Active - AI</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest md:hidden">Live</span>
                       </div>
                     )}
                   </div>
@@ -625,13 +634,56 @@ Return a valid JSON string exactly like this:
             <button onClick={() => setShowSettings(true)} className={`absolute bottom-6 left-6 p-3 rounded-full ${themeClasses.panel} hover:scale-110 transition-transform z-20`}>
               <Settings className="w-6 h-6" />
             </button>
+
+            {/* Floating Search/Queue Button */}
+            <AnimatePresence>
+              {!isSearchOpen && (
+                <motion.button 
+                  initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
+                  onClick={() => setIsSearchOpen(true)} 
+                  className={`absolute bottom-6 right-6 p-4 rounded-full ${themeClasses.accent} ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'} shadow-[0_0_20px_rgba(212,175,55,0.4)] hover:scale-110 transition-transform z-30 flex items-center gap-2`}
+                >
+                  <Search className="w-6 h-6" />
+                  {queue.length > 0 && (
+                    <span className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex flex-col items-center justify-center text-xs font-black shadow-lg">
+                      {queue.length}
+                    </span>
+                  )}
+                </motion.button>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* RIGHT PANELS (SEARCH + QUEUE) */}
-          <div className={`w-full lg:w-96 flex flex-col h-full z-20 ${themeClasses.panel} border-l shadow-[-10px_0_30px_rgba(0,0,0,0.1)] relative shrink-0 rounded-none border-t-0 border-b-0 border-r-0`}>
-            
-            {/* Search Area */}
-            <div className={`p-4 border-b ${themeClasses.border} shrink-0`}>
+          <AnimatePresence>
+            {isSearchOpen && (
+              <>
+                {/* Mobile Backdrop */}
+                <motion.div 
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  onClick={() => setIsSearchOpen(false)}
+                  className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm"
+                />
+                
+                {/* Search Drawer */}
+                <motion.div 
+                  initial={{ x: '100%' }}
+                  animate={{ x: 0 }}
+                  exit={{ x: '100%' }}
+                  transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                  className={`fixed inset-y-0 right-0 w-[90%] max-w-sm lg:max-w-md flex flex-col z-50 ${themeClasses.panel} bg-opacity-95 lg:bg-opacity-100 backdrop-blur-3xl lg:backdrop-blur-none border-l shadow-[-20px_0_50px_rgba(0,0,0,0.5)] shrink-0 rounded-none`}
+                >
+                  
+                  {/* Drawer Header */}
+                  <div className={`p-4 border-b ${themeClasses.border} shrink-0 flex items-center justify-between`}>
+                    <h2 className={`font-black tracking-widest uppercase text-sm px-2 ${themeClasses.text}`}>Song Library</h2>
+                    <button onClick={() => setIsSearchOpen(false)} className={`p-2 rounded-full hover:bg-white/10 transition-colors ${themeClasses.text}`}>
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Search Area */}
+                  <div className={`p-4 border-b ${themeClasses.border} shrink-0`}>
               <div className="relative">
                 <Search className={`absolute left-4 top-3.5 w-5 h-5 ${themeClasses.textMuted}`} />
                 <input 
@@ -704,7 +756,10 @@ Return a valid JSON string exactly like this:
               onRemove={(index: number) => setQueue(q => q.filter((_, i) => i !== index))}
               onPlay={() => {}} // Play naturally flows from "Play Next" on stage
             />
-          </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
         </motion.div>
       )}
 
@@ -955,7 +1010,10 @@ function QueuePanel({ queue, themeClasses, theme, onRemove, onPlay }: any) {
       style={{ overflow: 'hidden' }}
     >
       {/* Header (Always visible) */}
-      <div className={`h-20 shrink-0 flex items-center justify-between px-6 cursor-pointer ${theme === 'glass' ? 'bg-white/80' : 'bg-black/40'} backdrop-blur-xl`}>
+      <div 
+        className={`h-20 shrink-0 flex items-center justify-between px-6 cursor-pointer ${theme === 'glass' ? 'bg-white/80' : 'bg-black/40'} backdrop-blur-xl`}
+        onClick={() => setIsHovered(!isHovered)}
+      >
         <div className="flex items-center gap-4">
           <div className={`w-10 h-10 rounded-full flex items-center justify-center ${themeClasses.accent} ${themeClasses.accentText}`}>
              <span className="font-black">{queue.length}</span>

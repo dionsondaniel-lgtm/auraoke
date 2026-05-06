@@ -1,0 +1,53 @@
+1. RUN THEN REPLACE ACTUAL FOLDER FOR GIT
+
+npm run build
+
+
+
+
+2. RUN BELOW TO UPDATE FINAL
+
+# Stage all changes
+git add .
+
+# Ask for commit message
+$msg = Read-Host "Commit message"
+
+if (-not $msg) {
+    Write-Host "Commit aborted: empty message"
+    exit 1
+}
+
+# Commit changes
+git commit -m "$msg"
+
+# Push to the current branch
+$branch = git rev-parse --abbrev-ref HEAD
+git push origin $branch
+
+# Build the Vite app
+npm run build
+
+# Optional: Deploy to Vercel if you have Vercel CLI installed
+# vercel --prod
+
+
+==================================================================
+
+each time update reactapp:
+
+# Install dependencies if needed
+npm install
+
+# Build the production-ready React/Vite app
+npm run build
+
+# Copy built web assets to native platforms
+npx cap copy
+
+# Sync plugins, configuration, and platforms
+npx cap sync
+
+npx cap open android
+
+
