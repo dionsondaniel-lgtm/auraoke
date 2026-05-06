@@ -39,9 +39,12 @@ export default function AuraokeApp() {
   // --- STATE ---
   const [theme, setTheme] = useState<Theme>('geometric');
   
-  // Login checks storage (defaults to true if credentials aren't found)
+  // Use ONLY sessionStorage for auth. It survives refreshes, but dies on tab close.
   const [showLogin, setShowLogin] = useState(() => {
-    return localStorage.getItem('auraoke_logged_in') !== 'true' && sessionStorage.getItem('auraoke_logged_in') !== 'true';
+    return sessionStorage.getItem('auraoke_logged_in') !== 'true';
+  });
+  const [user, setUser] = useState<string | null>(() => {
+    return sessionStorage.getItem('auraoke_user');
   });
   
   const [credits, setCredits] = useState(0);
@@ -81,17 +84,7 @@ export default function AuraokeApp() {
   useEffect(() => {
     const today = new Date().toLocaleDateString();
     
-    // Auto logout & reset when app is closed or tab is refreshed
-    const handleBeforeUnload = () => {
-      localStorage.removeItem('auraoke_stats');
-      localStorage.removeItem('auraoke_logged_in');
-      localStorage.removeItem('auraoke_user');
-      sessionStorage.removeItem('auraoke_logged_in');
-      sessionStorage.removeItem('auraoke_user');
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    // Init data for today
+    // Init stats for today (localStorage keeps stats for the full day despite closing)
     const stored = localStorage.getItem('auraoke_stats');
     if (stored) {
       try {
@@ -105,11 +98,9 @@ export default function AuraokeApp() {
     
     localStorage.setItem('auraoke_stats', JSON.stringify({ date: today, records: [] }));
     setSessionRecords([]);
-
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // --- FETCH SEARCH FROM BACKEND (Mobile & PC safe) ---
+  // --- FETCH SEARCH FROM BACKEND ---
   useEffect(() => {
     if (!searchQuery.trim()) {
       setApiResults([]);
@@ -118,7 +109,6 @@ export default function AuraokeApp() {
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
-        // Use window.location.origin so mobile fetch uses network IP automatically
         const host = typeof window !== 'undefined' ? window.location.origin : '';
         const res = await fetch(`${host}/api/search?q=${encodeURIComponent(searchQuery)}`);
         if (!res.ok) throw new Error("Search API error");
@@ -131,7 +121,7 @@ export default function AuraokeApp() {
       } finally {
         setIsSearching(false);
       }
-    }, 700); // Debounce to prevent API spam while typing
+    }, 700);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
@@ -287,10 +277,12 @@ export default function AuraokeApp() {
       return;
     }
     setLoginError('');
+    setUser('Guest Singer');
     setShowLogin(false);
     
-    localStorage.setItem('auraoke_logged_in', 'true');
+    // Store in sessionStorage. Natively survives refresh, clears on app/tab close.
     sessionStorage.setItem('auraoke_logged_in', 'true');
+    sessionStorage.setItem('auraoke_user', 'Guest Singer');
   };
 
   const insertCoin = () => {
