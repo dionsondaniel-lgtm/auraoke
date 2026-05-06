@@ -79,6 +79,8 @@ export default function AuraokeApp() {
     // Cleanup on window unload (Simulate deleting the JSON file on app close)
     const handleBeforeUnload = () => {
       localStorage.removeItem('auraoke_stats');
+      localStorage.removeItem('auraoke_logged_in');
+      localStorage.removeItem('auraoke_user');
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
 

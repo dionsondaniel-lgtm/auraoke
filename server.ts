@@ -14,35 +14,42 @@ async function startServer() {
       if (!query) {
         return res.status(400).json({ error: "Query is required" });
       }
-      // Ensure we're searching for a karaoke version
-      const searchQuery = query.toLowerCase().includes("karaoke") ? query : `${query} karaoke`;
+      
+      const isKaraokeQuery = query.toLowerCase().includes("karaoke") || query.toLowerCase().includes("instrumental");
+      const searchQuery = isKaraokeQuery ? query : `${query} karaoke`;
       const r = await yts(searchQuery);
       
-      // Filter for videos that allow embedding
-      // We process more to ensure we get at least 5 embeddable
+      // Attempt to only return valid videos. Oembed checking too aggressively blocks valid videos due to rate limits.
       const candidates = r.videos.slice(0, 15);
       const embeddableVideos = [];
       
       for (const v of candidates) {
         try {
-          // Check oEmbed endpoint
           const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${v.videoId}`);
           if (oembedRes.ok) {
-            embeddableVideos.push(v);
+            embeddableVideos.push({
+              id: v.videoId,
+              title: v.title,
+              artist: v.author.name,
+              videoId: v.videoId,
+              thumbnail: v.thumbnail
+            });
             if (embeddableVideos.length === 5) break;
           }
         } catch (e) {
-          // Ignore network errors for single video check
+          // ignore
         }
       }
-      
-      const results = embeddableVideos.map(v => ({
+
+      // Fallback: If strict embedded check finds 0 results, just return the top 8 candidates.
+      const results = embeddableVideos.length > 0 ? embeddableVideos : candidates.slice(0, 8).map(v => ({
         id: v.videoId,
         title: v.title,
         artist: v.author.name,
         videoId: v.videoId,
         thumbnail: v.thumbnail
       }));
+      
       res.json({ results });
     } catch (error) {
       console.error("Search error:", error);
