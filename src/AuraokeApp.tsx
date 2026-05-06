@@ -657,16 +657,18 @@ Return a valid JSON string exactly like this:
           {/* RIGHT PANELS (SEARCH + QUEUE) */}
           <AnimatePresence>
             {isSearchOpen && (
-              <>
+              <React.Fragment key="search-drawer-fragment">
                 {/* Mobile Backdrop */}
                 <motion.div 
+                  key="backdrop"
                   initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                   onClick={() => setIsSearchOpen(false)}
-                  className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm"
+                  className="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm"
                 />
                 
                 {/* Search Drawer */}
                 <motion.div 
+                  key="drawer"
                   initial={{ x: '100%' }}
                   animate={{ x: 0 }}
                   exit={{ x: '100%' }}
@@ -757,7 +759,7 @@ Return a valid JSON string exactly like this:
               onPlay={() => {}} // Play naturally flows from "Play Next" on stage
             />
                 </motion.div>
-              </>
+              </React.Fragment>
             )}
           </AnimatePresence>
         </motion.div>
