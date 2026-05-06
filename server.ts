@@ -1,32 +1,36 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import { createServer as createViteServer } from "vite";
 import yts from "yt-search";
 import path from "path";
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = parseInt(process.env.PORT || "3000", 10);
 
   // API route for YouTube search
-  app.get("/api/search", async (req, res) => {
+  app.get("/api/search", async (req: Request, res: Response): Promise<any> => {
     try {
       const query = req.query.q as string;
       if (!query) {
         return res.status(400).json({ error: "Query is required" });
       }
+      
       // Ensure we're searching for a karaoke version
       const searchQuery = query.toLowerCase().includes("karaoke") ? query : `${query} karaoke`;
       const r = await yts(searchQuery);
       
       // Filter for videos that allow embedding
-      // We process more to ensure we get at least 5 embeddable
       const candidates = r.videos.slice(0, 15);
       const embeddableVideos = [];
       
       for (const v of candidates) {
         try {
-          // Check oEmbed endpoint
-          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${v.videoId}`);
+          // Check oEmbed endpoint with a User-Agent to bypass some bot protections
+          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${v.videoId}`, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+            }
+          });
           if (oembedRes.ok) {
             embeddableVideos.push(v);
             if (embeddableVideos.length === 5) break;
@@ -34,6 +38,11 @@ async function startServer() {
         } catch (e) {
           // Ignore network errors for single video check
         }
+      }
+
+      // 🚨 CRITICAL FALLBACK: If deployed server was blocked by YouTube, fallback to raw candidates
+      if (embeddableVideos.length === 0 && candidates.length > 0) {
+        embeddableVideos.push(...candidates.slice(0, 5));
       }
       
       const results = embeddableVideos.map(v => ({
@@ -43,10 +52,11 @@ async function startServer() {
         videoId: v.videoId,
         thumbnail: v.thumbnail
       }));
-      res.json({ results });
+      
+      return res.json({ results });
     } catch (error) {
       console.error("Search error:", error);
-      res.status(500).json({ error: "Failed to search videos" });
+      return res.status(500).json({ error: "Failed to search videos" });
     }
   });
 
@@ -60,7 +70,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*', (req: Request, res: Response) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

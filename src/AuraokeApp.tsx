@@ -123,12 +123,20 @@ export default function AuraokeApp() {
       setIsSearching(true);
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
+        
+        // Check if the response is actually JSON. If it's HTML, the backend isn't running!
+        const contentType = res.headers.get("content-type");
+        if (!res.ok || (contentType && !contentType.includes("application/json"))) {
+          throw new Error("Backend returned invalid response. Is the server running?");
+        }
+
         const data = await res.json();
         if (data.results) {
           setApiResults(data.results);
         }
       } catch (err) {
-        console.error("Search API failed", err);
+        console.error("Search API failed:", err);
+        setApiResults([]); // Gracefully empty the results
       } finally {
         setIsSearching(false);
       }
