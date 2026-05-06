@@ -1,6 +1,5 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-// @ts-ignore - ignores TS warning if @types/yt-search is not installed
 import yts from "yt-search";
 import path from "path";
 
@@ -11,48 +10,39 @@ async function startServer() {
   // API route for YouTube search
   app.get("/api/search", async (req, res) => {
     try {
-      // 1. Force TypeScript to recognize the query as a string
-      const query = typeof req.query.q === 'string' ? req.query.q : '';
-      
+      const query = req.query.q as string;
       if (!query) {
         return res.status(400).json({ error: "Query is required" });
       }
-      
-      const isKaraokeQuery = query.toLowerCase().includes("karaoke") || query.toLowerCase().includes("instrumental");
-      const searchQuery = isKaraokeQuery ? query : `${query} karaoke`;
+      // Ensure we're searching for a karaoke version
+      const searchQuery = query.toLowerCase().includes("karaoke") ? query : `${query} karaoke`;
       const r = await yts(searchQuery);
       
+      // Filter for videos that allow embedding
+      // We process more to ensure we get at least 5 embeddable
       const candidates = r.videos.slice(0, 15);
       const embeddableVideos = [];
       
-      // 2. Explicitly cast to any[] to fix the "v implicitly has an 'any' type" error
-      for (const v of candidates as any[]) {
+      for (const v of candidates) {
         try {
-          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${v.videoId}&format=json`);
+          // Check oEmbed endpoint
+          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${v.videoId}`);
           if (oembedRes.ok) {
-            embeddableVideos.push({
-              id: v.videoId,
-              title: v.title,
-              artist: v.author.name,
-              videoId: v.videoId,
-              thumbnail: v.thumbnail
-            });
+            embeddableVideos.push(v);
             if (embeddableVideos.length === 5) break;
           }
         } catch (e) {
-          // ignore
+          // Ignore network errors for single video check
         }
       }
-
-      // 3. Explicitly type v as any in the map function
-      const results = embeddableVideos.length > 0 ? embeddableVideos : candidates.slice(0, 8).map((v: any) => ({
+      
+      const results = embeddableVideos.map(v => ({
         id: v.videoId,
         title: v.title,
         artist: v.author.name,
         videoId: v.videoId,
         thumbnail: v.thumbnail
       }));
-      
       res.json({ results });
     } catch (error) {
       console.error("Search error:", error);
