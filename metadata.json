@@ -1,0 +1,6 @@
+{
+  "name": "Auraoke",
+  "description": "Next-Gen Virtual Karaoke",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": []
+}

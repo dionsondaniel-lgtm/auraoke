@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Production Build
+dist/
+dist-ssr/
+
+# Environment Variables (CRITICAL)
+.env
+.env.local
+.env.*.local
+
+# IDEs and Editors (Visual Studio, VS Code, Mac)
+.DS_Store
+.vs/
+.vscode/
+*.suo
+*.ntvs-analysis.dat
+*.njsproj
+*.sln
+*.swp
+*.user
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Testing (if you add tests later)
+coverage/
