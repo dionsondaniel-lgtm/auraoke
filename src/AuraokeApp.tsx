@@ -114,6 +114,7 @@ export default function AuraokeApp() {
   }, []);
 
   // Use the exact search logic from 2nd block
+ // Use the exact search logic from 2nd block
   useEffect(() => {
     if (!searchQuery.trim()) {
       setApiResults([]);
@@ -124,10 +125,10 @@ export default function AuraokeApp() {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
         
-        // Check if the response is actually JSON. If it's HTML, the backend isn't running!
+        // Anti-crash check: Ensure the server returned JSON, not an HTML error page
         const contentType = res.headers.get("content-type");
         if (!res.ok || (contentType && !contentType.includes("application/json"))) {
-          throw new Error("Backend returned invalid response. Is the server running?");
+          throw new Error("Invalid response from server. Vercel might be returning a 404 HTML page.");
         }
 
         const data = await res.json();
@@ -136,7 +137,7 @@ export default function AuraokeApp() {
         }
       } catch (err) {
         console.error("Search API failed:", err);
-        setApiResults([]); // Gracefully empty the results
+        setApiResults([]); // Fail gracefully by emptying results instead of crashing
       } finally {
         setIsSearching(false);
       }
