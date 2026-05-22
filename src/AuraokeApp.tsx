@@ -510,7 +510,7 @@ Return a valid JSON string exactly like this:
                 <div className={`p-2 rounded-xl ${themeClasses.accent} shadow-lg`}>
                   <Music className={`w-5 h-5 md:w-6 md:h-6 ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'}`} />
                 </div>
-                <h1 className={`text-xl md:text-2xl font-light tracking-[0.2em] uppercase ${themeClasses.title} truncate`}>Auraoke v2.0 ***** Daniel B. Dionson</h1>
+                <h1 className={`text-xl md:text-2xl font-light tracking-[0.2em] uppercase ${themeClasses.title} truncate`}>Auraoke v2.0 * Daniel B. Dionson</h1>
               </div>
 
               <div className={`flex flex-wrap items-center gap-3 md:gap-4 px-4 py-3 md:px-6 md:py-3 rounded-2xl md:rounded-full w-full md:w-auto ${themeClasses.panel}`}>
