@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import YouTube from 'react-youtube';
 import { 
   Play, Pause, Coins, X, Search, Plus, Mic, Square, Loader2, Sparkles, 
-  Settings, Music, SkipForward, Star, Shield, Lock, Fingerprint, ChevronUp,
-  Trophy, Activity, Calendar, Clock
+  Settings, Music, Star, Lock, Fingerprint, ChevronUp,
+  Trophy, Activity, Calendar, Clock, Power
 } from 'lucide-react';
 
 // --- MOCK DATA ---
@@ -18,6 +18,7 @@ const SUGGESTED_SONGS = [
 ];
 
 type Theme = 'geometric' | 'gold' | 'glass';
+type AiMode = 'off' | 'score_only' | 'full_coaching';
 
 interface Song {
   id: string;
@@ -37,9 +38,8 @@ interface SessionRecord {
 
 export default function AuraokeApp() {
   // --- STATE ---
-  const [theme, setTheme] = useState<Theme>('geometric');
+  const [theme, setTheme] = useState<Theme>('gold');
   
-  // Use sessionStorage as fallback for natural session-bound auth + check localStorage
   const [showLogin, setShowLogin] = useState(() => {
     return localStorage.getItem('auraoke_logged_in') !== 'true' && sessionStorage.getItem('auraoke_logged_in') !== 'true';
   });
@@ -58,13 +58,12 @@ export default function AuraokeApp() {
   const [scoreData, setScoreData] = useState<{ score: number, comment: string } | null>(null);
   const [showScore, setShowScore] = useState(false);
   
-  // Search state matching attached logic
   const [searchQuery, setSearchQuery] = useState('');
   const [apiResults, setApiResults] = useState<Song[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [aiCoaching, setAiCoaching] = useState(true);
+  const [aiMode, setAiMode] = useState<AiMode>('full_coaching');
   const [showSettings, setShowSettings] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -76,25 +75,41 @@ export default function AuraokeApp() {
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [currentStartTime, setCurrentStartTime] = useState<Date | null>(null);
 
+  // Robot / AI Speech State
+  const [robotMessage, setRobotMessage] = useState("");
+
   // --- AUDIO RECORDING REF ---
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const playerRef = useRef<any>(null);
 
+  // --- AI SPEECH ENGINE ---
+  const speakVoice = (text: string, forceTTS = false) => {
+    setRobotMessage(text);
+    // Auto hide text bubble based on reading duration
+    setTimeout(() => {
+      setRobotMessage(prev => prev === text ? "" : prev);
+    }, text.length * 80 + 1500);
+
+    if (!('speechSynthesis' in window)) return;
+    if (aiMode === 'off' && !forceTTS) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.pitch = 0.7; // Slightly robotic/deep
+    utterance.rate = 0.95;
+    
+    // Find the best futuristic/robotic english voice available in the browser
+    const voices = window.speechSynthesis.getVoices();
+    const bestVoice = voices.find(v => v.name.includes('Google US English') || v.name.includes('Daniel') || v.name.includes('Samantha') || v.lang === 'en-US');
+    if (bestVoice) utterance.voice = bestVoice;
+    
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // Init Data
   useEffect(() => {
     const today = new Date().toLocaleDateString();
-    
-    // Final app close adjustments (Will wipe stats and auth tokens so the user logs out automatically)
-    const handleBeforeUnload = () => {
-      localStorage.removeItem('auraoke_stats');
-      localStorage.removeItem('auraoke_logged_in');
-      localStorage.removeItem('auraoke_user');
-      sessionStorage.removeItem('auraoke_logged_in');
-      sessionStorage.removeItem('auraoke_user');
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    // Init data for today
     const stored = localStorage.getItem('auraoke_stats');
     if (stored) {
       try {
@@ -105,16 +120,21 @@ export default function AuraokeApp() {
         }
       } catch (e) {}
     }
-    
-    // Create new for that day ONLOAD init
     localStorage.setItem('auraoke_stats', JSON.stringify({ date: today, records: [] }));
     setSessionRecords([]);
-
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // Use the exact search logic from 2nd block
- // Use the exact search logic from 2nd block
+  // System Intro Speech
+  useEffect(() => {
+    if (!showLogin && queue.length === 0 && !currentSong) {
+      const timer = setTimeout(() => {
+        speakVoice("System activated. Please insert coin and begin search for a song.", true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [showLogin]);
+
+  // Search Logic
   useEffect(() => {
     if (!searchQuery.trim()) {
       setApiResults([]);
@@ -124,20 +144,17 @@ export default function AuraokeApp() {
       setIsSearching(true);
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
-        
-        // Anti-crash check: Ensure the server returned JSON, not an HTML error page
         const contentType = res.headers.get("content-type");
         if (!res.ok || (contentType && !contentType.includes("application/json"))) {
-          throw new Error("Invalid response from server. Vercel might be returning a 404 HTML page.");
+          throw new Error("Invalid response from server.");
         }
-
         const data = await res.json();
         if (data.results) {
           setApiResults(data.results);
         }
       } catch (err) {
         console.error("Search API failed:", err);
-        setApiResults([]); // Fail gracefully by emptying results instead of crashing
+        setApiResults([]); 
       } finally {
         setIsSearching(false);
       }
@@ -147,11 +164,8 @@ export default function AuraokeApp() {
 
   const togglePlayPause = () => {
     if (playerRef.current) {
-      if (isPlaying) {
-        playerRef.current.pauseVideo();
-      } else {
-        playerRef.current.playVideo();
-      }
+      if (isPlaying) playerRef.current.pauseVideo();
+      else playerRef.current.playVideo();
     }
   };
 
@@ -161,7 +175,6 @@ export default function AuraokeApp() {
   };
 
   const handleVideoError = (event: any) => {
-    console.error("YouTube Player Error:", event.data);
     if (event.data === 101 || event.data === 150) {
       setVideoError("The owner of this video restricts embedded playback.");
     } else {
@@ -172,41 +185,25 @@ export default function AuraokeApp() {
   // --- THEME DEFINITIONS ---
   const themeClasses = {
     geometric: {
-      bg: 'bg-[#0A0A0A]',
-      text: 'text-[#E5E5E5]',
-      textMuted: 'text-[#D4AF37]/60',
-      border: 'border-[#D4AF37]/30',
+      bg: 'bg-[#0A0A0A]', text: 'text-[#E5E5E5]', textMuted: 'text-[#D4AF37]/60', border: 'border-[#D4AF37]/30',
       panel: 'bg-white/5 backdrop-blur-xl border border-white/10 shadow-[0_0_20px_rgba(212,175,55,0.05)]',
-      accent: 'bg-gradient-to-tr from-[#D4AF37] to-[#8B7355]',
-      accentHover: 'hover:opacity-90',
-      accentText: 'text-black font-bold uppercase tracking-widest',
-      font: 'font-sans',
+      accent: 'bg-gradient-to-tr from-[#D4AF37] to-[#8B7355]', accentHover: 'hover:opacity-90',
+      accentText: 'text-black font-bold uppercase tracking-widest', font: 'font-sans',
       input: 'bg-black/40 border border-[#D4AF37]/30 text-[#D4AF37] placeholder:text-stone-500',
       title: 'text-2xl font-light tracking-[0.2em] uppercase text-[#D4AF37]',
     },
     gold: {
-      bg: 'bg-black',
-      text: 'text-amber-500',
-      textMuted: 'text-amber-500/60',
-      border: 'border-amber-500/30',
+      bg: 'bg-black', text: 'text-amber-500', textMuted: 'text-amber-500/60', border: 'border-amber-500/30',
       panel: 'bg-neutral-900/90 border border-amber-500/40 shadow-[0_0_20px_rgba(251,191,36,0.15)]',
-      accent: 'bg-gradient-to-r from-amber-600 to-yellow-400',
-      accentHover: 'hover:opacity-90',
-      accentText: 'text-black font-bold',
-      font: 'font-serif',
+      accent: 'bg-gradient-to-r from-amber-600 to-yellow-400', accentHover: 'hover:opacity-90',
+      accentText: 'text-black font-bold', font: 'font-serif',
       input: 'bg-black border-amber-500/50 text-amber-500 placeholder:text-amber-700',
       title: 'text-2xl font-black tracking-tighter uppercase',
     },
     glass: {
-      bg: 'bg-slate-50',
-      text: 'text-slate-900',
-      textMuted: 'text-slate-500',
-      border: 'border-white',
+      bg: 'bg-slate-50', text: 'text-slate-900', textMuted: 'text-slate-500', border: 'border-white',
       panel: 'bg-white/40 backdrop-blur-2xl border border-white/60 shadow-xl',
-      accent: 'bg-slate-900',
-      accentHover: 'hover:bg-slate-800',
-      accentText: 'text-white',
-      font: 'font-sans',
+      accent: 'bg-slate-900', accentHover: 'hover:bg-slate-800', accentText: 'text-white', font: 'font-sans',
       input: 'bg-white/50 border-white text-slate-900 placeholder:text-slate-500',
       title: 'text-2xl font-black tracking-tighter uppercase',
     }
@@ -229,9 +226,7 @@ export default function AuraokeApp() {
             .filter((n: string) => n.includes('gemini') && !n.includes('embedding') && !n.includes('vision')); 
           setAvailableModels(names);
         }
-      } catch (e) {
-        console.error("Failed to fetch models:", e);
-      }
+      } catch (e) {}
     };
     fetchModels();
   }, []);
@@ -244,43 +239,33 @@ export default function AuraokeApp() {
     const parts: any[] = [{ text: prompt }];
     
     if (fileBase64) {
-      parts.push({
-        inlineData: { data: fileBase64.data, mimeType: fileBase64.mimeType }
-      });
+      parts.push({ inlineData: { data: fileBase64.data, mimeType: fileBase64.mimeType } });
     }
 
     const priorityModels = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
     const modelChain = Array.from(new Set([activeModel, ...priorityModels, ...availableModels]));
 
     for (const model of modelChain) {
-      let attempt = 0;
-      let modelSuccess = false;
-
+      let attempt = 0; let modelSuccess = false;
       while (attempt < 2) {
         try {
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              contents: [{ parts }], 
-              generationConfig: { temperature: 0.3 } 
-            })
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.3 } })
           });
           
           if (!res.ok) {
             if (res.status === 429) break; 
-            if (res.status === 503 && attempt === 0) { await new Promise(resolve => setTimeout(resolve, 1500)); attempt++; continue; } 
-            if (res.status >= 400) break; 
+            if (res.status === 503 && attempt === 0) { await new Promise(r => setTimeout(r, 1500)); attempt++; continue; } 
             break;
           }
-
           const data = await res.json();
           responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
           modelSuccess = true;
           if (activeModel !== model) setActiveModel(model);
           break;
         } catch (error) {
-          if (attempt === 0) { await new Promise(resolve => setTimeout(resolve, 1000)); attempt++; continue; }
+          if (attempt === 0) { await new Promise(r => setTimeout(r, 1000)); attempt++; continue; }
           break;
         }
       }
@@ -301,27 +286,44 @@ export default function AuraokeApp() {
     setUser('Guest Singer');
     setShowLogin(false);
     
-    // Save state - both standard storage types so it persists across refreshes but clears firmly on close
     localStorage.setItem('auraoke_logged_in', 'true');
     localStorage.setItem('auraoke_user', 'Guest Singer');
     sessionStorage.setItem('auraoke_logged_in', 'true');
     sessionStorage.setItem('auraoke_user', 'Guest Singer');
+    
+    // Attempt voice greeting immediately after explicit user interaction
+    setTimeout(() => {
+      speakVoice("System unlocked. Welcome.", true);
+    }, 500);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('auraoke_logged_in');
+    localStorage.removeItem('auraoke_user');
+    sessionStorage.removeItem('auraoke_logged_in');
+    sessionStorage.removeItem('auraoke_user');
+    setShowLogin(true);
+    setShowSettings(false);
+    setQueue([]);
+    setCredits(0);
+    setTotalPesos(0);
+    window.speechSynthesis.cancel();
   };
 
   const insertCoin = () => {
     setTotalPesos(p => p + 5);
     setCredits(c => c + 2);
+    if (credits === 0 && queue.length === 0) {
+      speakVoice("Coin accepted. Two credits added.", true);
+    }
   };
 
   const addToQueue = (song: Song) => {
-    if (credits <= 0 && queue.length === 0 && !currentSong) {
-        // Can't play without a coin, but queued items will wait for credit
-    }
     if (credits > 0) {
       setCredits(c => c - 1);
       setQueue(q => [...q, song]);
     } else {
-      alert("Please insert minimum 5 pesos for 2 song credits!");
+      speakVoice("Insufficient credits. Please insert coin.", true);
     }
   };
 
@@ -357,18 +359,32 @@ export default function AuraokeApp() {
   };
 
   const executeScoring = async (base64data?: string, mimeType?: string) => {
-    let prompt = `Listen to this audio recording of a user singing karaoke. Score their performance strictly out of 100 based on pitch, timing, and energy. Act as a supportive but honest vocal coach. Provide a short, fun critique.
+    if (aiMode === 'off') {
+       const finalScore = Math.floor(Math.random() * 30) + 70; // Mock score 70-99
+       const mockComment = "Nice attempt! Keep practicing your vocals.";
+       setScoreData({ score: finalScore, comment: mockComment });
+       addRecord(finalScore);
+       setIsJudging(false);
+       setShowScore(true);
+       setCurrentSong(null);
+       speakVoice(`Performance complete. You scored ${finalScore}. ${mockComment}`, true);
+       return;
+    }
+
+    let prompt = `Listen to this audio recording of a user singing karaoke. Score their performance strictly out of 100 based on pitch, timing, and energy. Do NOT reveal you are an AI. 
 Return a valid JSON string exactly like this:
 {"score": 85, "comment": "Great energy but watch your pitch on the high notes!"}`;
 
     if (!base64data) {
-        prompt = `Act as a supportive but honest vocal coach. Since the user's microphone wasn't found or access was denied, pretend you heard them sing and give a slightly random karaoke score between 70 and 95. Provide a short, fun critique.
+        prompt = `Pretend you heard the user sing and give a slightly random karaoke score between 70 and 95. Provide a short, fun critique.
 Return a valid JSON string exactly like this:
 {"score": 85, "comment": "Great energy but watch your pitch on the high notes!"}`;
     }
           
-    if (aiCoaching) {
-      prompt += ` Also, include a specific practice suggestion.`;
+    if (aiMode === 'full_coaching') {
+      prompt += ` Act as a mysterious, highly analytical vocal coach. Provide a fun, honest critique and include one specific practice suggestion.`;
+    } else if (aiMode === 'score_only') {
+      prompt += ` Keep the comment extremely brief, max 1 short sentence focusing only on the result.`;
     }
 
     const payload = base64data ? { data: base64data, mimeType: mimeType || 'audio/webm' } : undefined;
@@ -379,79 +395,57 @@ Return a valid JSON string exactly like this:
       if (match) {
         const data = JSON.parse(match[0]);
         const finalScore = data.score || 75;
-        setScoreData({ score: finalScore, comment: data.comment || "Good effort!" });
+        const comment = data.comment || "Good effort!";
+        setScoreData({ score: finalScore, comment });
         addRecord(finalScore);
+        speakVoice(`Performance complete. You scored ${finalScore}. ${comment}`);
       } else {
-        setScoreData({ score: 75, comment: "I couldn't quite hear you clearly, but I appreciate the enthusiasm! " + response });
+        setScoreData({ score: 75, comment: "I couldn't analyze you clearly, but good enthusiasm! " });
         addRecord(75);
+        speakVoice(`Performance complete. You scored 75. Good enthusiasm.`);
       }
     } catch (e) {
-      setScoreData({ score: 70, comment: "Okay effort, but the neural network got confused parsing your pitch!" });
+      setScoreData({ score: 70, comment: "Neural network parsing error." });
       addRecord(70);
     }
           
     setIsJudging(false);
     setShowScore(true);
-    setCurrentSong(null); // Stop YouTube playing
+    setCurrentSong(null);
   };
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: false,
-        } 
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
-        }
-      };
-
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mediaRecorder.start();
       setIsRecording(true);
     } catch (err) {
-      console.warn("Microphone access denied or not found. Using fallback mock AI scoring.");
       mediaRecorderRef.current = null;
-      setIsRecording(true); // Pretend we are recording to show the UI
+      setIsRecording(true); 
     }
   };
 
   const stopRecordingAndScore = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.onstop = async () => {
-        setIsRecording(false);
-        setIsJudging(true);
-        setShowScore(false);
+        setIsRecording(false); setIsJudging(true); setShowScore(false);
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        
-        // Convert Blob to Base64
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64data = (reader.result as string).split(',')[1];
-          const mimeType = audioBlob.type || 'audio/webm';
-          executeScoring(base64data, mimeType);
+          executeScoring(base64data, audioBlob.type || 'audio/webm');
         };
       };
-      
       mediaRecorderRef.current.stop();
-      // Stop all tracks
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
     } else if (isRecording) {
-      // Mock recording fallback
-      setIsRecording(false);
-      setIsJudging(true);
-      setShowScore(false);
-      executeScoring();
+      setIsRecording(false); setIsJudging(true); setShowScore(false); executeScoring();
     } else {
-      // Not recording, just end
       setCurrentSong(null);
     }
   };
@@ -460,7 +454,6 @@ Return a valid JSON string exactly like this:
     stopRecordingAndScore();
   };
 
-  // --- RENDER BOILERPLATE ---
   return (
     <div className={`h-screen w-full transition-colors duration-700 ${themeClasses.bg} ${themeClasses.text} ${themeClasses.font} flex flex-col overflow-hidden`}>
       
@@ -504,12 +497,12 @@ Return a valid JSON string exactly like this:
         )}
       </AnimatePresence>
 
-      {/* 2. MAIN DASHBOARD LAYOUT */}
+      {/* 2. MAIN DASHBOARD LAYOUT (FLEX ROW ON LARGE SCREENS) */}
       {!showLogin && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-row min-h-0 relative overflow-hidden">
           
           {/* LEFT/CENTER STAGE (VIDEO + CONTROLS) */}
-          <div className="flex-1 flex flex-col relative z-10 p-2 md:p-4 lg:p-6 min-h-[50vh] lg:min-h-0">
+          <div className="flex-1 flex flex-col min-w-0 relative z-10 p-2 md:p-4 lg:p-6 transition-all duration-500">
             
             {/* Header / Arcade Machine Stats */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 shrink-0 relative">
@@ -517,13 +510,13 @@ Return a valid JSON string exactly like this:
                 <div className={`p-2 rounded-xl ${themeClasses.accent} shadow-lg`}>
                   <Music className={`w-5 h-5 md:w-6 md:h-6 ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'}`} />
                 </div>
-                <h1 className={`text-xl md:text-2xl font-light tracking-[0.2em] uppercase ${themeClasses.title}`}>Auraoke v2.0 by Daniel B. Dionson</h1>
+                <h1 className={`text-xl md:text-2xl font-light tracking-[0.2em] uppercase ${themeClasses.title} truncate`}>Auraoke v2.0 ***** Daniel B. Dionson</h1>
               </div>
 
               <div className={`flex flex-wrap items-center gap-3 md:gap-4 px-4 py-3 md:px-6 md:py-3 rounded-2xl md:rounded-full w-full md:w-auto ${themeClasses.panel}`}>
                 <button 
                   onClick={() => setShowStatsModal(true)}
-                  className={`p-2 md:px-4 md:py-2 rounded-full flex gap-2 items-center ${themeClasses.accent} shadow-[0_0_15px_rgba(212,175,55,0.3)] hover:scale-110 transition-all z-20`}
+                  className={`p-2 md:px-4 md:py-2 rounded-full flex gap-2 items-center ${themeClasses.accent} shadow-[0_0_15px_rgba(251,191,36,0.3)] hover:scale-110 transition-all z-20`}
                 >
                   <motion.div animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}>
                     <Trophy className={`w-4 h-4 md:w-5 md:h-5 ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'}`} />
@@ -558,62 +551,33 @@ Return a valid JSON string exactly like this:
             </div>
 
             {/* Video Player Area */}
-            <div className={`flex-1 relative rounded-3xl overflow-hidden ${themeClasses.panel} flex flex-col justify-center items-center shadow-2xl min-h-0`}>
+            <div className={`flex-1 relative rounded-3xl overflow-hidden ${themeClasses.panel} flex flex-col items-center shadow-2xl min-h-0`}>
               {currentSong ? (
                 <div className="relative w-full h-full bg-black/90">
-                  {/* YouTube Player */}
                   <YouTube 
                     videoId={currentSong.videoId} 
-                    opts={{
-                      width: '100%',
-                      height: '100%',
-                      playerVars: { 
-                        autoplay: 1, 
-                        controls: 1, 
-                        modestbranding: 1,
-                        origin: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-                      }
-                    }}
+                    opts={{ width: '100%', height: '100%', playerVars: { autoplay: 1, controls: 1, modestbranding: 1 } }}
                     onReady={(e) => playerRef.current = e.target}
                     onStateChange={onPlayerStateChange}
                     onError={handleVideoError}
                     onEnd={onPlayerEnd}
                     className="w-full h-full absolute inset-0"
                   />
-                  {/* Error Overlay */}
                   {videoError && (
                     <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-8 text-center z-40 backdrop-blur-md">
-                      <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-4">
-                        <X className="w-8 h-8 text-red-500" />
-                      </div>
+                      <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-4"><X className="w-8 h-8 text-red-500" /></div>
                       <h3 className="text-xl font-bold text-white mb-2">Video Restricted</h3>
                       <p className="text-sm text-stone-300 max-w-md mb-6">{videoError}</p>
-                      <div className="flex gap-4">
-                        <a 
-                          href={`https://www.youtube.com/watch?v=${currentSong.videoId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-6 py-3 bg-[#D4AF37] text-black font-bold uppercase tracking-widest text-xs rounded-full hover:scale-105 transition-transform"
-                        >
-                          Open in YouTube
-                        </a>
-                        <button 
-                          onClick={stopRecordingAndScore}
-                          className="px-6 py-3 bg-white/10 text-white font-bold uppercase tracking-widest text-xs rounded-full hover:bg-white/20 transition-colors"
-                        >
-                          Finish & Score
-                        </button>
-                      </div>
+                      <button onClick={stopRecordingAndScore} className="px-6 py-3 bg-white/10 text-white font-bold uppercase tracking-widest text-xs rounded-full hover:bg-white/20">Finish & Score</button>
                     </div>
                   )}
-                  {/* Overlay Controls */}
                   <div className="absolute top-2 md:top-6 flex w-full px-2 md:px-6 justify-between items-start pointer-events-none">
-                    <div className="bg-black/60 backdrop-blur-md px-3 py-2 md:px-4 md:py-2 border border-white/10 rounded-xl pointer-events-auto shadow-2xl max-w-[60%] sm:max-w-sm flex items-center gap-2 md:gap-4">
+                    <div className="bg-black/60 backdrop-blur-md px-3 py-2 md:px-4 md:py-2 border border-white/10 rounded-xl pointer-events-auto shadow-2xl max-w-[60%] flex items-center gap-2 md:gap-4">
                       <button onClick={togglePlayPause} className="p-1.5 md:p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors text-white shrink-0">
                         {isPlaying ? <Pause className="w-4 h-4 md:w-5 md:h-5" /> : <Play className="w-4 h-4 md:w-5 md:h-5" />}
                       </button>
                       <div className="min-w-0">
-                        <p className="text-[8px] md:text-xs text-white/50 uppercase tracking-widest font-bold mb-0.5 md:mb-1 truncate">Now Playing</p>
+                        <p className="text-[8px] md:text-xs text-white/50 uppercase tracking-widest font-bold mb-0.5 truncate">Now Playing</p>
                         <h3 className="text-white font-black truncate text-xs md:text-sm">{currentSong.title}</h3>
                         <p className="text-white/80 text-[10px] md:text-xs truncate">{currentSong.artist}</p>
                       </div>
@@ -622,31 +586,31 @@ Return a valid JSON string exactly like this:
                       <div className="flex items-center gap-1.5 md:gap-2 bg-red-500/20 text-red-400 px-2 py-1 md:px-4 md:py-2 rounded-full border border-red-500/30 backdrop-blur-md pointer-events-auto animate-pulse shrink-0">
                         <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-red-500 shrink-0" />
                         <span className="text-[8px] md:text-xs font-bold uppercase tracking-widest hidden md:inline">Mic Active - AI</span>
-                        <span className="text-[10px] font-bold uppercase tracking-widest md:hidden">Live</span>
+                        <span className="text-[10px] font-bold uppercase md:hidden">Live</span>
                       </div>
                     )}
                   </div>
                 </div>
               ) : (
-                <div className="text-center p-8 space-y-4 max-h-full overflow-y-auto">
+                <div className="w-full h-full p-4 md:p-8 flex flex-col items-center justify-center overflow-y-auto custom-scrollbar">
                   {isJudging ? (
-                     <div className="flex flex-col items-center py-10">
+                     <div className="flex flex-col items-center">
                         <Loader2 className={`w-16 h-16 animate-spin mb-4 ${themeClasses.text}`} />
-                        <h3 className="text-2xl font-black uppercase tracking-widest text-[#D4AF37]">Neural Network Analyzing Pitch...</h3>
-                        <p className={`${themeClasses.textMuted} mt-2`}>The Gemini AI is evaluating your performance.</p>
+                        <h3 className="text-2xl font-black uppercase tracking-widest text-[#D4AF37] text-center">Neural Network Processing...</h3>
+                        <p className={`${themeClasses.textMuted} mt-2 text-center`}>Agent is evaluating your performance.</p>
                      </div>
                   ) : (
                     <>
-                      <DancingRobot themeClasses={themeClasses} />
-                      <h2 className="text-4xl font-black tracking-tight mt-6">Stage is Empty</h2>
-                      <p className={`text-lg ${themeClasses.textMuted} max-w-md mx-auto leading-tight`}>Queue a song from the right panel and press play when ready.</p>
+                      <DancingRobot themeClasses={themeClasses} message={robotMessage} />
+                      <h2 className="text-4xl font-black tracking-tight mt-10 text-center">Stage is Empty</h2>
+                      <p className={`text-lg ${themeClasses.textMuted} max-w-md mx-auto leading-tight text-center mt-2`}>Queue a song from the right panel and press play when ready.</p>
                       {queue.length > 0 && credits > 0 && (
                         <button onClick={playNext} className={`mt-8 px-8 py-4 rounded-full flex items-center justify-center gap-2 mx-auto ${themeClasses.accent} ${themeClasses.accentText} ${themeClasses.accentHover} shadow-[0_0_30px_currentColor] opacity-80 transition-transform hover:scale-105 font-black uppercase tracking-widest`}>
                           <Play className="w-5 h-5" fill="currentColor" /> Play Next: {queue[0].title}
                         </button>
                       )}
                       {queue.length > 0 && credits <= 0 && (
-                        <p className="mt-8 text-rose-500 font-bold uppercase tracking-widest animate-pulse">Insert Coin to Play Queue!</p>
+                        <p className="mt-8 text-rose-500 font-bold uppercase tracking-widest animate-pulse text-center">Insert Coin to Play Queue!</p>
                       )}
                     </>
                   )}
@@ -659,13 +623,13 @@ Return a valid JSON string exactly like this:
               <Settings className="w-6 h-6" />
             </button>
 
-            {/* Floating Search/Queue Button */}
+            {/* Floating Search Toggle (Mobile/Hidden when Drawer Open) */}
             <AnimatePresence>
               {!isSearchOpen && (
                 <motion.button 
                   initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
                   onClick={() => setIsSearchOpen(true)} 
-                  className={`absolute bottom-6 right-6 p-4 rounded-full ${themeClasses.accent} ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'} shadow-[0_0_20px_rgba(212,175,55,0.4)] hover:scale-110 transition-transform z-30 flex items-center gap-2`}
+                  className={`absolute bottom-6 right-6 lg:right-6 p-4 rounded-full ${themeClasses.accent} ${themeClasses.accentText.includes('text-black') ? 'text-black' : 'text-white'} shadow-[0_0_20px_rgba(251,191,36,0.4)] hover:scale-110 transition-transform z-30 flex items-center gap-2`}
                 >
                   <Search className="w-6 h-6" />
                   {queue.length > 0 && (
@@ -678,28 +642,29 @@ Return a valid JSON string exactly like this:
             </AnimatePresence>
           </div>
 
-          {/* RIGHT PANELS (SEARCH + QUEUE) */}
+          {/* RIGHT PANEL (SEARCH + QUEUE) - FLEX ON DESKTOP, OVERLAY ON MOBILE */}
           <AnimatePresence>
             {isSearchOpen && (
-              <React.Fragment key="search-drawer-fragment">
+              <>
                 {/* Mobile Backdrop */}
                 <motion.div 
-                  key="backdrop"
                   initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                   onClick={() => setIsSearchOpen(false)}
-                  className="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm"
+                  className="lg:hidden fixed inset-0 bg-black/50 z-40 backdrop-blur-sm"
                 />
                 
                 {/* Search Drawer */}
                 <motion.div 
-                  key="drawer"
-                  initial={{ x: '100%' }}
-                  animate={{ x: 0 }}
-                  exit={{ x: '100%' }}
+                  initial={{ x: '100%', opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: '100%', opacity: 0 }}
                   transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                  className={`fixed inset-y-0 right-0 w-[90%] max-w-sm lg:max-w-md flex flex-col z-50 ${themeClasses.panel} bg-opacity-95 lg:bg-opacity-100 backdrop-blur-3xl lg:backdrop-blur-none border-l shadow-[-20px_0_50px_rgba(0,0,0,0.5)] shrink-0 rounded-none`}
+                  className={`
+                    fixed inset-y-0 right-0 w-[90%] max-w-sm z-50
+                    lg:relative lg:inset-auto lg:w-[400px] lg:max-w-none lg:flex-shrink-0 lg:border-l lg:z-10
+                    flex flex-col ${themeClasses.panel} bg-opacity-95 lg:bg-opacity-100 backdrop-blur-3xl lg:backdrop-blur-none shadow-[-20px_0_50px_rgba(0,0,0,0.5)] lg:shadow-none shrink-0 rounded-none
+                  `}
                 >
-                  
                   {/* Drawer Header */}
                   <div className={`p-4 border-b ${themeClasses.border} shrink-0 flex items-center justify-between`}>
                     <h2 className={`font-black tracking-widest uppercase text-sm px-2 ${themeClasses.text}`}>Song Library</h2>
@@ -724,7 +689,7 @@ Return a valid JSON string exactly like this:
                   {/* Song List */}
                   <div className="flex-1 overflow-y-auto p-4 space-y-2 relative pb-28 custom-scrollbar">
                     <h3 className={`text-[10px] font-bold uppercase tracking-widest mb-4 px-2 ${themeClasses.textMuted}`}>
-                      {searchQuery ? (isSearching ? 'Searching YouTube...' : 'Search Results') : 'Suggested Hits'}
+                      {searchQuery ? (isSearching ? 'Searching...' : 'Search Results') : 'Suggested Hits'}
                     </h3>
                     
                     {isSearching ? (
@@ -734,56 +699,33 @@ Return a valid JSON string exactly like this:
                     ) : (
                       (searchQuery ? apiResults : SUGGESTED_SONGS).map((song) => (
                         <motion.div 
-                          key={song.id}
-                          whileHover={{ scale: 1.02 }}
+                          key={song.id} whileHover={{ scale: 1.02 }}
                           className={`group p-3 rounded-2xl flex items-center justify-between border border-transparent hover:${themeClasses.border} transition-colors cursor-pointer ${themeClasses.bg} bg-opacity-50 shrink-0`}
                         >
-                          <div className="flex-1 truncate pr-4">
-                            <h4 className="font-bold truncate text-sm">{song.title}</h4>
-                            <p className={`text-xs truncate ${themeClasses.textMuted}`}>{song.artist}</p>
+                          <div className="flex-1 min-w-0 pr-4">
+                            <h4 className="font-bold text-sm leading-tight break-words">{song.title}</h4>
+                            <p className={`text-xs mt-1 leading-tight break-words ${themeClasses.textMuted}`}>{song.artist}</p>
                           </div>
                           <button 
                             onClick={() => addToQueue(song)}
-                            className={`p-2 rounded-full ${theme === 'glass' ? 'bg-slate-200' : 'bg-white/10'} hover:bg-[currentColor] transition-colors`}
+                            className={`p-2 shrink-0 rounded-full ${theme === 'glass' ? 'bg-slate-200' : 'bg-white/10'} hover:bg-[currentColor] transition-colors`}
                           >
                             <Plus className="w-4 h-4" />
                           </button>
                         </motion.div>
                       ))
                     )}
-                    
-                    {!isSearching && searchQuery && apiResults.length === 0 && (
-                      <div className="p-4 text-center mt-4">
-                        <p className={`text-xs ${themeClasses.textMuted} mb-4`}>Song not found in YouTube.</p>
-                        <input 
-                          placeholder="Paste YouTube Video ID"
-                          className={`w-full px-3 py-2 text-xs rounded border focus:outline-none ${themeClasses.input}`}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              const val = e.currentTarget.value;
-                              if (val) {
-                                addToQueue({ id: 'custom-' + Date.now(), title: 'Custom Track', artist: 'Unknown', videoId: val });
-                                e.currentTarget.value = '';
-                              }
-                            }
-                          }}
-                        />
-                        <p className={`text-[10px] mt-2 ${themeClasses.textMuted}`}>Press Enter to queue ID</p>
-                      </div>
-                    )}
                   </div>
                   
-                  {/* Hover-to-Expand Queue Panel (Bottom Right) */}
+                  {/* Queue Panel (Bottom Right) */}
                   <div className={`w-full border-t border-[currentColor] opacity-20 absolute bottom-0`}/>
                   <QueuePanel 
                     queue={queue} 
-                    themeClasses={themeClasses} 
-                    theme={theme}
+                    themeClasses={themeClasses} theme={theme}
                     onRemove={(index: number) => setQueue(q => q.filter((_, i) => i !== index))}
-                    onPlay={() => {}} // Play naturally flows from "Play Next" on stage
                   />
                 </motion.div>
-              </React.Fragment>
+              </>
             )}
           </AnimatePresence>
         </motion.div>
@@ -825,23 +767,36 @@ Return a valid JSON string exactly like this:
                   <h3 className={`text-xs font-bold uppercase tracking-widest mb-4 ${themeClasses.textMuted} flex items-center gap-2`}>
                      <Sparkles className="w-4 h-4" /> AI Configuration
                   </h3>
-                  <label className="flex items-center justify-between p-4 rounded-xl border border-[currentColor] opacity-80 cursor-pointer hover:opacity-100 transition-opacity">
-                    <div>
-                      <p className="font-bold text-sm">AI Vocal Coaching</p>
-                      <p className="text-xs mt-1">Get Gemini practice suggestions after every song.</p>
-                    </div>
-                    <div className={`w-12 h-6 rounded-full relative transition-colors ${aiCoaching ? (themeClasses.bg === 'bg-white' ? 'bg-slate-900' : 'bg-white/90') : 'bg-slate-700'}`}>
-                      <motion.div 
-                        initial={false}
-                        animate={{ x: aiCoaching ? 24 : 2 }}
-                        className={`absolute top-1 left-0 w-4 h-4 rounded-full ${aiCoaching ? (themeClasses.bg === 'bg-white' ? 'bg-white' : 'bg-black') : 'bg-white shadow'}`}
-                      />
-                    </div>
-                    {/* Hidden input to toggle state */}
-                    <input type="checkbox" className="hidden" checked={aiCoaching} onChange={(e) => setAiCoaching(e.target.checked)} />
-                  </label>
+                  <div className="flex bg-black/40 rounded-xl p-1 border border-[currentColor] opacity-80">
+                    {[
+                      { id: 'off', label: 'Off' },
+                      { id: 'score_only', label: 'Score Only' },
+                      { id: 'full_coaching', label: 'Vocal Coach' }
+                    ].map(m => (
+                      <button
+                        key={m.id}
+                        onClick={() => setAiMode(m.id as AiMode)}
+                        className={`flex-1 py-3 text-[10px] md:text-xs font-bold uppercase tracking-widest rounded-lg transition-colors ${aiMode === m.id ? 'bg-white/20 text-white shadow-md' : 'text-white/50 hover:text-white/80'}`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className={`text-[10px] mt-3 leading-relaxed ${themeClasses.textMuted}`}>
+                    {aiMode === 'off' && "AI Agent is deactivated. Scores are generated randomly."}
+                    {aiMode === 'score_only' && "Agent provides a minimal score without extensive feedback."}
+                    {aiMode === 'full_coaching' && "Agent actively listens and provides professional vocal critiques."}
+                  </p>
                 </div>
               </div>
+
+              {/* Secure Logout Footer */}
+              <div className="mt-8 pt-6 border-t border-[currentColor] border-opacity-20">
+                 <button onClick={handleLogout} className="w-full py-3 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500/20 font-bold uppercase tracking-widest transition-colors flex items-center justify-center gap-2">
+                    <Power className="w-4 h-4" /> Secure Logout
+                 </button>
+              </div>
+
             </motion.div>
           </motion.div>
         )}
@@ -856,19 +811,19 @@ Return a valid JSON string exactly like this:
           >
             <motion.div 
               initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
-              className={`w-full max-w-5xl md:h-[80vh] h-[90vh] flex flex-col p-6 lg:p-8 rounded-3xl ${themeClasses.panel} relative overflow-hidden text-left shadow-2xl`}
+              className={`w-full max-w-5xl h-[90vh] md:h-[80vh] flex flex-col p-6 lg:p-8 rounded-3xl ${themeClasses.panel} relative overflow-hidden text-left shadow-2xl`}
             >
               <button onClick={() => setShowStatsModal(false)} className={`absolute top-6 right-6 opacity-50 hover:opacity-100 z-10 p-2 rounded-full hover:bg-white/10 ${themeClasses.text}`}><X className="w-6 h-6"/></button>
               
-              <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-6 gap-4 pr-12 md:pr-0">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-6 gap-4 pr-12 md:pr-0 shrink-0">
                  <h2 className="text-2xl font-black flex items-center gap-3"><Activity className="w-6 h-6 text-yellow-400"/> Daily Session Stats</h2>
                  <span className={`text-xs uppercase tracking-widest ${themeClasses.textMuted} font-bold flex items-center gap-2`}><Calendar className="w-4 h-4"/> {new Date().toLocaleDateString()}</span>
               </div>
               
-              <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-8">
-                 {/* Left Column: Summary & History */}
-                 <div className="flex-1 flex flex-col min-h-0 lg:border-r border-white/20 lg:pr-8">
-                    <div className="flex gap-4 mb-6">
+              <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6 lg:gap-8 overflow-y-auto lg:overflow-hidden custom-scrollbar">
+                 {/* LEFT COLUMN: History */}
+                 <div className="w-full lg:flex-1 flex flex-col lg:min-h-0 lg:border-r border-white/20 lg:pr-8">
+                    <div className="flex gap-4 mb-6 shrink-0">
                        <div className="p-4 rounded-xl bg-black/40 border border-[#D4AF37]/20 flex-1 flex flex-col justify-center items-center text-center">
                           <p className={`text-[10px] uppercase tracking-widest ${themeClasses.textMuted} mb-1 flex items-center gap-1`}><Music className="w-3 h-3"/> Songs Played</p>
                           <p className="text-3xl font-black">{sessionRecords.length}</p>
@@ -878,47 +833,43 @@ Return a valid JSON string exactly like this:
                           <p className="text-3xl font-black text-yellow-400">₱{totalPesos}</p>
                        </div>
                     </div>
-                    <h3 className={`text-xs font-bold uppercase tracking-widest mb-4 ${themeClasses.textMuted}`}>History Log</h3>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-2">
+                    
+                    <h3 className={`text-xs font-bold uppercase tracking-widest mb-4 shrink-0 ${themeClasses.textMuted}`}>History Log</h3>
+                    <div className="flex flex-col lg:flex-1 overflow-y-visible lg:overflow-y-auto custom-scrollbar space-y-3 pr-2 pb-4">
                        {sessionRecords.map((r) => (
-                         <div key={r.id} className={`p-3 bg-white/5 rounded-xl border border-white/5 flex flex-col hover:bg-white/10 transition-colors`}>
-                            <div className="flex justify-between items-start mb-1 gap-2">
-                               <h4 className="font-bold truncate" title={r.title}>{r.title}</h4>
-                               <span className="font-black text-yellow-400 text-lg leading-none">{r.score}</span>
-                            </div>
-                            <div className={`flex justify-between items-center text-xs ${themeClasses.textMuted}`}>
-                               <span className="truncate max-w-[150px]">{r.artist}</span>
-                               <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {r.startTime} - {r.endTime}</span>
+                         <div key={r.id} className={`p-4 bg-white/5 rounded-xl border border-white/5 flex flex-col hover:bg-white/10 transition-colors`}>
+                            <div className="flex justify-between items-start gap-4">
+                               <div className="flex-1 min-w-0">
+                                  <h4 className="font-bold text-sm leading-snug break-words">{r.title}</h4>
+                                  <p className={`text-xs mt-1 leading-snug break-words ${themeClasses.textMuted}`}>{r.artist}</p>
+                                  <div className={`flex items-center gap-1 text-[10px] mt-3 ${themeClasses.textMuted}`}>
+                                     <Clock className="w-3 h-3"/> {r.startTime} - {r.endTime}
+                                  </div>
+                               </div>
+                               <div className="shrink-0 flex flex-col items-end">
+                                  <span className="font-black text-yellow-400 text-2xl leading-none">{r.score}</span>
+                               </div>
                             </div>
                          </div>
                        ))}
-                       {sessionRecords.length === 0 && (
-                         <div className="flex flex-col items-center justify-center h-40 opacity-50">
-                            <Activity className="w-8 h-8 mb-2" />
-                            <p className="text-xs uppercase tracking-widest">No songs sung today yet.</p>
-                         </div>
-                       )}
                     </div>
                  </div>
                  
-                 {/* Right Column: Top 10 High Scores */}
-                 <div className="w-full lg:w-1/3 flex flex-col min-h-0 pt-6 lg:pt-0 border-t lg:border-t-0 border-white/20">
-                    <h3 className="text-xs font-bold uppercase tracking-widest mb-4 text-yellow-400 flex items-center gap-2">
+                 {/* RIGHT COLUMN: Top 10 */}
+                 <div className="w-full lg:w-[40%] flex flex-col lg:min-h-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-white/20">
+                    <h3 className="text-xs font-bold uppercase tracking-widest mb-4 shrink-0 text-yellow-400 flex items-center gap-2">
                       <Trophy className="w-4 h-4"/> Top 10 Hall of Fame
                     </h3>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2">
+                    <div className="flex flex-col lg:flex-1 overflow-y-visible lg:overflow-y-auto custom-scrollbar space-y-3 pr-2 pb-4">
                        {sessionRecords.length > 0 ? (
-                         [...sessionRecords]
-                            .sort((a, b) => b.score - a.score)
-                            .slice(0, 10)
-                            .map((r, idx) => (
-                             <div key={`top-${r.id}`} className="flex items-center gap-4 bg-gradient-to-r from-yellow-500/10 to-transparent p-3 rounded-xl border border-yellow-500/20">
-                                <span className={`text-2xl font-black w-8 text-center ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-amber-600' : 'opacity-40'}`}>#{idx + 1}</span>
-                                <div className="flex-1 min-w-0">
-                                   <h4 className="font-bold truncate text-sm" title={r.title}>{r.title}</h4>
-                                   <p className={`text-[10px] uppercase ${themeClasses.textMuted} truncate`}>{r.artist}</p>
+                         [...sessionRecords].sort((a, b) => b.score - a.score).slice(0, 10).map((r, idx) => (
+                             <div key={`top-${r.id}`} className="flex items-center gap-3 sm:gap-4 bg-gradient-to-r from-yellow-500/10 to-transparent p-3 sm:p-4 rounded-xl border border-yellow-500/20">
+                                <span className={`text-xl sm:text-2xl font-black w-6 sm:w-8 text-center shrink-0 ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-amber-600' : 'opacity-40'}`}>#{idx + 1}</span>
+                                <div className="flex-1 min-w-0 py-1">
+                                   <h4 className="font-bold text-xs sm:text-sm leading-tight break-words">{r.title}</h4>
+                                   <p className={`text-[10px] uppercase mt-1 leading-tight break-words ${themeClasses.textMuted}`}>{r.artist}</p>
                                 </div>
-                                <span className={`font-black text-xl ${idx === 0 ? 'text-yellow-400 scale-110' : 'text-white'}`}>{r.score}</span>
+                                <span className={`font-black text-lg sm:text-xl shrink-0 ${idx === 0 ? 'text-yellow-400 scale-110' : 'text-white'}`}>{r.score}</span>
                              </div>
                          ))
                        ) : (
@@ -929,11 +880,6 @@ Return a valid JSON string exactly like this:
                        )}
                     </div>
                  </div>
-              </div>
-              
-              {/* Footer Copyright */}
-              <div className={`mt-6 pt-4 border-t border-white/10 text-center text-[10px] uppercase tracking-[0.2em] ${themeClasses.textMuted} font-bold`}>
-                Auraoke v2.0 by Daniel B. Dionson Copyright 2026
               </div>
             </motion.div>
           </motion.div>
@@ -947,7 +893,6 @@ Return a valid JSON string exactly like this:
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className={`fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/90 backdrop-blur-3xl overflow-hidden`}
           >
-            {/* Celebration Balloons */}
             <CelebrationBalloons score={scoreData.score} />
 
             <motion.div 
@@ -955,9 +900,7 @@ Return a valid JSON string exactly like this:
               transition={{ type: "spring", damping: 15 }}
               className={`w-full max-w-lg p-10 rounded-[3rem] ${themeClasses.panel} text-center relative overflow-hidden z-10`}
             >
-              {/* Particle effect container (CSS generated purely for bg) */}
               <div className="absolute inset-0 pointer-events-none opacity-20 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[currentColor] to-transparent" />
-              
               <h2 className={`text-sm font-black uppercase tracking-[0.3em] mb-4 ${themeClasses.textMuted}`}>Performance Score</h2>
               
               <div className="flex justify-center items-end gap-2 mb-8 relative z-10 w-48 h-48 mx-auto flex-col">
@@ -1023,7 +966,7 @@ function CelebrationBalloons({ score }: { score: number }) {
 }
 
 // --- QUEUE PANEL COMPONENT ---
-function QueuePanel({ queue, themeClasses, theme, onRemove, onPlay }: any) {
+function QueuePanel({ queue, themeClasses, theme, onRemove }: any) {
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -1035,7 +978,6 @@ function QueuePanel({ queue, themeClasses, theme, onRemove, onPlay }: any) {
       onMouseLeave={() => setIsHovered(false)}
       style={{ overflow: 'hidden' }}
     >
-      {/* Header (Always visible) */}
       <div 
         className={`h-20 shrink-0 flex items-center justify-between px-6 cursor-pointer ${theme === 'glass' ? 'bg-white/80' : 'bg-black/40'} backdrop-blur-xl`}
         onClick={() => setIsHovered(!isHovered)}
@@ -1056,7 +998,6 @@ function QueuePanel({ queue, themeClasses, theme, onRemove, onPlay }: any) {
         </motion.div>
       </div>
 
-      {/* Expanded Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-black/10 custom-scrollbar">
         {queue.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center opacity-50 text-center px-4">
@@ -1066,14 +1007,14 @@ function QueuePanel({ queue, themeClasses, theme, onRemove, onPlay }: any) {
         ) : (
           queue.map((song: any, idx: number) => (
             <div key={`${song.id}-${idx}`} className={`p-4 rounded-xl flex items-center justify-between ${theme === 'glass' ? 'bg-white' : 'bg-white/5'} shrink-0`}>
-              <div className="flex items-center gap-4 truncate">
-                <span className={`font-black opacity-30 text-lg w-6 text-center ${themeClasses.text}`}>{idx + 1}</span>
-                <div className="truncate">
-                  <h4 className="font-bold text-sm truncate">{song.title}</h4>
-                  <p className={`text-xs ${themeClasses.textMuted} truncate`}>{song.artist}</p>
+              <div className="flex items-center gap-4 min-w-0 pr-2">
+                <span className={`font-black opacity-30 text-lg w-6 text-center shrink-0 ${themeClasses.text}`}>{idx + 1}</span>
+                <div className="min-w-0">
+                  <h4 className="font-bold text-sm leading-tight break-words">{song.title}</h4>
+                  <p className={`text-xs mt-1 leading-tight break-words ${themeClasses.textMuted}`}>{song.artist}</p>
                 </div>
               </div>
-              <button onClick={() => onRemove(idx)} className="p-2 opacity-50 hover:opacity-100 hover:text-rose-500 transition-colors">
+              <button onClick={() => onRemove(idx)} className="p-2 shrink-0 opacity-50 hover:opacity-100 hover:text-rose-500 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1084,40 +1025,58 @@ function QueuePanel({ queue, themeClasses, theme, onRemove, onPlay }: any) {
   );
 }
 
-function DancingRobot({ themeClasses }: any) {
+function DancingRobot({ themeClasses, message }: any) {
   return (
     <motion.div 
-      className="relative flex flex-col items-center justify-center h-48 mt-8"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
+      className="relative flex flex-col items-center justify-center h-48 mb-4"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
     >
-      {/* Glow */}
+      <AnimatePresence>
+        {message && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20, scale: 0.9 }} 
+            animate={{ 
+              opacity: 1, 
+              y: 0, 
+              scale: [1, 1.02, 1],
+              boxShadow: ["0 0 15px rgba(251,191,36,0.1)", "0 0 30px rgba(251,191,36,0.5)", "0 0 15px rgba(251,191,36,0.1)"]
+            }} 
+            transition={{ 
+              scale: { repeat: Infinity, duration: 2, ease: "easeInOut" }, 
+              boxShadow: { repeat: Infinity, duration: 2, ease: "easeInOut" },
+              y: { type: "spring", stiffness: 200, damping: 20 }
+            }}
+            exit={{ opacity: 0, y: 10, scale: 0.9 }}
+            className={`absolute bottom-[100%] mb-8 w-64 p-4 rounded-2xl ${themeClasses.panel} text-xs font-bold border ${themeClasses.border} z-50 text-center leading-relaxed flex flex-col items-center`}
+          >
+            <Sparkles className="w-4 h-4 text-amber-400 animate-pulse mb-1" />
+            {message}
+            <div className={`absolute -bottom-2 w-4 h-4 rotate-45 border-r border-b ${themeClasses.border} ${themeClasses.bg === 'bg-white' ? 'bg-white' : 'bg-[#1a1a1a]'}`} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <motion.div 
         animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }} 
         transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
         className={`absolute w-40 h-40 rounded-full blur-3xl ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'bg-[#D4AF37]/30' : themeClasses.bg === 'bg-black' ? 'bg-amber-500/30' : 'bg-slate-500/30'}`} 
       />
       
-      {/* Robot Head */}
       <motion.div
         animate={{ y: [0, -10, 0], rotate: [-2, 2, -2] }}
         transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
         className={`relative z-10 w-24 h-24 rounded-3xl ${themeClasses.panel} flex items-center justify-center border-b-4 border-r-4 ${themeClasses.border}`}
       >
-         {/* Eyes */}
          <div className="flex gap-4">
            <motion.div 
-             animate={{ scaleY: [1, 0.1, 1] }} 
-             transition={{ duration: 0.2, repeat: Infinity, repeatDelay: 3 }}
+             animate={message ? { scaleY: [1, 0.1, 1], transition: { duration: 0.1, repeat: Infinity } } : { scaleY: [1, 0.1, 1], transition: { duration: 0.2, repeat: Infinity, repeatDelay: 3 } }} 
              className={`w-4 h-2 ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'bg-[#D4AF37]' : themeClasses.bg === 'bg-black' ? 'bg-amber-400' : 'bg-slate-700'} rounded-full glow`} 
            />
            <motion.div 
-             animate={{ scaleY: [1, 0.1, 1] }} 
-             transition={{ duration: 0.2, repeat: Infinity, repeatDelay: 3 }}
+             animate={message ? { scaleY: [1, 0.1, 1], transition: { duration: 0.1, repeat: Infinity } } : { scaleY: [1, 0.1, 1], transition: { duration: 0.2, repeat: Infinity, repeatDelay: 3 } }} 
              className={`w-4 h-2 ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'bg-[#D4AF37]' : themeClasses.bg === 'bg-black' ? 'bg-amber-400' : 'bg-slate-700'} rounded-full glow`} 
            />
          </div>
-         {/* Antenna */}
          <motion.div 
            animate={{ rotate: [-10, 10, -10] }}
            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
@@ -1125,12 +1084,10 @@ function DancingRobot({ themeClasses }: any) {
          >
             <div className={`absolute -top-2 -left-1 w-3 h-3 rounded-full ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'bg-[#D4AF37]' : themeClasses.bg === 'bg-black' ? 'bg-amber-400' : 'bg-slate-700'} animate-ping`} />
          </motion.div>
-         {/* Ears */}
          <div className={`absolute -left-3 top-8 w-4 h-8 rounded-l-full ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'bg-[#D4AF37]/40' : themeClasses.bg === 'bg-black' ? 'bg-amber-500/40' : 'bg-slate-500/40'}`} />
          <div className={`absolute -right-3 top-8 w-4 h-8 rounded-r-full ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'bg-[#D4AF37]/40' : themeClasses.bg === 'bg-black' ? 'bg-amber-500/40' : 'bg-slate-500/40'}`} />
       </motion.div>
 
-      {/* Mic Arm */}
       <motion.div
         animate={{ y: [0, -10, 0], x: [0, 5, 0], rotate: [0, 10, 0] }}
         transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
@@ -1141,21 +1098,8 @@ function DancingRobot({ themeClasses }: any) {
         </div>
       </motion.div>
 
-      {/* Floating Notes */}
-      <motion.div
-         animate={{ y: [0, -40], x: [0, -20], opacity: [0, 1, 0] }}
-         transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
-         className={`absolute right-10 top-10 ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'text-[#D4AF37]' : themeClasses.bg === 'bg-black' ? 'text-amber-400' : 'text-slate-600'}`}
-      >
-         <Music className="w-5 h-5" />
-      </motion.div>
-      <motion.div
-         animate={{ y: [0, -50], x: [0, 20], opacity: [0, 1, 0] }}
-         transition={{ duration: 2.5, repeat: Infinity, ease: "easeOut", delay: 1 }}
-         className={`absolute left-10 top-0 ${themeClasses.bg === 'bg-[#0A0A0A]' ? 'text-[#D4AF37]' : themeClasses.bg === 'bg-black' ? 'text-amber-400' : 'text-slate-600'}`}
-      >
-         <Music className="w-4 h-4" />
-      </motion.div>
+      <motion.div animate={{ y: [0, -40], x: [0, -20], opacity: [0, 1, 0] }} transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }} className={`absolute right-10 top-10 ${themeClasses.textMuted}`}><Music className="w-5 h-5" /></motion.div>
+      <motion.div animate={{ y: [0, -50], x: [0, 20], opacity: [0, 1, 0] }} transition={{ duration: 2.5, repeat: Infinity, ease: "easeOut", delay: 1 }} className={`absolute left-10 top-0 ${themeClasses.textMuted}`}><Music className="w-4 h-4" /></motion.div>
     </motion.div>
   );
 }
